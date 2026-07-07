@@ -128,8 +128,10 @@ fn parse_args() -> Result<Args, String> {
                 let secs = val("-t")?
                     .parse::<f64>()
                     .map_err(|_| "s80: -t wants a number of seconds")?;
-                if secs < 0.0 || !secs.is_finite() {
-                    return Err("s80: -t wants a non-negative number of seconds".into());
+                if secs < 0.0 || !secs.is_finite() || Duration::try_from_secs_f64(secs).is_err() {
+                    return Err(
+                        "s80: -t wants a non-negative, non-astronomical number of seconds".into(),
+                    );
                 }
                 args.secs = Some(secs);
             }
@@ -157,7 +159,8 @@ fn parse_args() -> Result<Args, String> {
                             .into(),
                     );
                 }
-                args.delay = Duration::from_secs_f64(ms / 1000.0);
+                args.delay = Duration::try_from_secs_f64(ms / 1000.0)
+                    .map_err(|_| "s80: -d is too large to be a delay")?;
             }
             "-T" | "--timeout" => {
                 let ms: u64 = val("-T")?
@@ -177,7 +180,9 @@ fn parse_args() -> Result<Args, String> {
             "--port" => {
                 args.port = val("--port")?
                     .parse()
-                    .map_err(|_| "s80: --port wants a port number")?;
+                    .ok()
+                    .filter(|&p| p > 0)
+                    .ok_or("s80: --port wants a port number, 1-65535")?;
             }
             "--256" => args.force_256 = true,
             other if other.starts_with('-') => {
