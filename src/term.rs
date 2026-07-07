@@ -16,6 +16,22 @@ pub struct GlyphPos {
     col: u16,
 }
 
+/// Wrap `text` in the foreground escape for `rgb` under `mode`
+/// (plain text when color is off).
+pub fn paint(text: &str, rgb: (u8, u8, u8), mode: ColorMode) -> String {
+    match mode {
+        ColorMode::Truecolor => {
+            format!("\x1b[38;2;{};{};{}m{}\x1b[0m", rgb.0, rgb.1, rgb.2, text)
+        }
+        ColorMode::C256 => format!(
+            "\x1b[38;5;{}m{}\x1b[0m",
+            crate::color::rgb_to_256(rgb.0, rgb.1, rgb.2),
+            text
+        ),
+        ColorMode::None => text.to_string(),
+    }
+}
+
 pub struct Strip {
     out: io::Stdout,
     ansi: bool,

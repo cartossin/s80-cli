@@ -250,15 +250,21 @@ fn run(args: &Args) -> std::io::Result<bool> {
         term::ColorMode::Truecolor
     };
     let mut strip = term::Strip::new(ansi, mode);
+    let color_mode = mode;
     let mut stats = stats::Stats::new();
     let mut probes: HashMap<u16, Probe> = HashMap::new();
 
-    let mode = if args.udp {
+    let banner_mode = if args.udp {
         format!(" [udp:{}]", args.port)
     } else {
         String::new()
     };
-    println!("s80 {} ({}){} — ^C for stats", args.target, dest.ip(), mode);
+    println!(
+        "s80 {} ({}){} — ^C for stats",
+        args.target,
+        dest.ip(),
+        banner_mode
+    );
 
     let start = Instant::now();
     // 0 for either bound means unlimited
@@ -382,7 +388,7 @@ fn run(args: &Args) -> std::io::Result<bool> {
     } else {
         None
     };
-    print_footer(args, dest, &stats, elapsed, pace);
+    print_footer(args, dest, &stats, elapsed, pace, color_mode);
     Ok(stats.replies() > 0)
 }
 
@@ -481,6 +487,7 @@ fn print_footer(
     stats: &stats::Stats,
     elapsed: f64,
     pace: Option<(Duration, Duration)>,
+    mode: term::ColorMode,
 ) {
     let completed = stats.replies() + stats.lost;
     let pct = |n: u64| {
@@ -492,15 +499,19 @@ fn print_footer(
     };
     println!("\n--- s80 {} ({}) ---", args.target, dest.ip());
     match stats.summary() {
-        Some((min, avg, p95, max)) => println!(
-            "{} probes  {} replies  min/avg/p95/max = {}/{}/{}/{} ms",
-            stats.sent,
-            stats.replies(),
-            fmt_ms(min),
-            fmt_ms(avg),
-            fmt_ms(p95),
-            fmt_ms(max)
-        ),
+        Some((min, avg, p95, max)) => {
+            // each stat wears the color its RTT would get as a '!'
+            let c = |v: f64| term::paint(&fmt_ms(v), color::rtt_rgb(v), mode);
+            println!(
+                "{} probes  {} replies  min/avg/p95/max = {}/{}/{}/{} ms",
+                stats.sent,
+                stats.replies(),
+                c(min),
+                c(avg),
+                c(p95),
+                c(max)
+            )
+        }
         None => println!("{} probes  0 replies", stats.sent),
     }
     let voided = if stats.voided > 0 {
