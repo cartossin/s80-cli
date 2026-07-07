@@ -291,8 +291,12 @@ fn run(args: &Args) -> std::io::Result<bool> {
         && end.is_none_or(|e| Instant::now() < e)
         && count.is_none_or(|c| stats.sent < c)
     {
-        prober.send(seq)?;
+        // stamp BEFORE send, like classic ping: on loopback and same-host
+        // virtual networks the whole round trip can complete inside the
+        // send syscall — stamping after would hide real transit and report
+        // impossibly small RTTs. Never understate.
         let sent_at = Instant::now();
+        prober.send(seq)?;
         stats.sent += 1;
         probes.insert(
             seq,
