@@ -2,20 +2,13 @@
 //! (macOS: native; Linux: needs net.ipv4.ping_group_range), with a
 //! raw-socket fallback. Never shells out to ping.
 
+use crate::probe::{Prober, Recv};
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use std::io;
 use std::net::SocketAddr;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 const PAYLOAD: &[u8] = b"s80!s80!s80!s80!s80!s80!"; // 24 bytes
-
-pub enum Recv {
-    Reply { seq: u16, at: Instant },
-    /// Deadline passed. `overshoot` far beyond the deadline means the OS
-    /// stalled us (scheduler, sleep) — the sample is a lie, not a loss.
-    TimedOut { overshoot: Duration },
-    Interrupted,
-}
 
 pub struct Pinger {
     sock: Socket,
@@ -48,7 +41,10 @@ impl Pinger {
         })
     }
 
-    pub fn send(&self, seq: u16) -> io::Result<()> {
+}
+
+impl Prober for Pinger {
+    fn send(&mut self, seq: u16) -> io::Result<()> {
         let mut pkt = [0u8; 8 + PAYLOAD.len()];
         pkt[0] = 8; // echo request
         pkt[4..6].copy_from_slice(&self.ident.to_be_bytes());
@@ -61,7 +57,7 @@ impl Pinger {
     }
 
     /// Block until an echo reply arrives or `deadline` passes.
-    pub fn recv(&mut self, deadline: Instant) -> io::Result<Recv> {
+    fn recv(&mut self, deadline: Instant) -> io::Result<Recv> {
         loop {
             let now = Instant::now();
             if now >= deadline {
@@ -87,6 +83,7 @@ impl Pinger {
             }
         }
     }
+
 }
 
 /// Returns the sequence number if `raw` is an ICMP echo reply.

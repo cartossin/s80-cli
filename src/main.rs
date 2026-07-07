@@ -8,8 +8,10 @@
 
 mod color;
 mod icmp;
+mod probe;
 mod stats;
 mod term;
+mod udp;
 
 use std::collections::HashMap;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -38,6 +40,8 @@ struct Args {
     fixed_timeout: Option<Duration>,
     color: ColorChoice,
     force_256: bool,
+    udp: bool,
+    port: u16,
 }
 
 #[derive(PartialEq)]
@@ -48,13 +52,16 @@ enum ColorChoice {
 }
 
 const USAGE: &str = "\
-s80 — terminal latency/jitter visualizer (self-clocked ICMP ping-pong)
-
 usage: s80 [options] <target>
 
   -t, --secs <n>      run duration in seconds (default 10, max 600)
   -c, --count <n>     stop after n probes
   -T, --timeout <ms>  fixed probe timeout (default: adaptive, 4 x recent p95)
+  -u, --udp           UDP probes, traceroute-style: a closed high port draws
+                      an ICMP port-unreachable — works on hosts that ignore
+                      echo. (Late detection is off; sparse combs against
+                      Linux boxes are their ~1/s unreachable rate-limit.)
+      --port <n>      UDP destination port (default 33434)
       --color <when>  auto | always | never (default auto)
       --256           force 256-color palette (default: truecolor if COLORTERM)
   -V, --version       print version
@@ -90,6 +97,8 @@ fn parse_args() -> Result<Args, String> {
         fixed_timeout: None,
         color: ColorChoice::Auto,
         force_256: false,
+        udp: false,
+        port: udp::DEFAULT_PORT,
     };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -98,8 +107,14 @@ fn parse_args() -> Result<Args, String> {
                 .ok_or_else(|| format!("s80: {name} needs a value"))
         };
         match a.as_str() {
-            "-h" | "--help" => return Err(USAGE.to_string()),
-            "-V" | "--version" => return Err(format!("s80 {VERSION}")),
+            "-h" | "--help" => {
+                print_help();
+                std::process::exit(0);
+            }
+            "-V" | "--version" => {
+                println!("s80 {VERSION}");
+                std::process::exit(0);
+            }
             "-t" | "--secs" => {
                 args.secs = val("-t")?
                     .parse::<f64>()
@@ -131,6 +146,12 @@ fn parse_args() -> Result<Args, String> {
                     "never" => ColorChoice::Never,
                     other => return Err(format!("s80: unknown --color '{other}'")),
                 };
+            }
+            "-u" | "--udp" => args.udp = true,
+            "--port" => {
+                args.port = val("--port")?
+                    .parse()
+                    .map_err(|_| "s80: --port wants a port number")?;
             }
             "--256" => args.force_256 = true,
             other if other.starts_with('-') => {
@@ -173,7 +194,11 @@ fn run(args: &Args) -> std::io::Result<bool> {
     }
 
     let dest = resolve(&args.target)?;
-    let mut pinger = icmp::Pinger::new(dest)?;
+    let mut prober: Box<dyn probe::Prober> = if args.udp {
+        Box::new(udp::UdpProber::new(dest, args.port)?)
+    } else {
+        Box::new(icmp::Pinger::new(dest)?)
+    };
 
     let is_tty = unsafe { libc::isatty(libc::STDOUT_FILENO) } == 1;
     let ansi = match args.color {
@@ -195,7 +220,12 @@ fn run(args: &Args) -> std::io::Result<bool> {
     let mut stats = stats::Stats::new();
     let mut probes: HashMap<u16, Probe> = HashMap::new();
 
-    println!("s80 {} ({}) — ^C for stats", args.target, dest.ip());
+    let mode = if args.udp {
+        format!(" [udp:{}]", args.port)
+    } else {
+        String::new()
+    };
+    println!("s80 {} ({}){} — ^C for stats", args.target, dest.ip(), mode);
 
     let start = Instant::now();
     let end = start + Duration::from_secs_f64(args.secs);
@@ -205,7 +235,7 @@ fn run(args: &Args) -> std::io::Result<bool> {
         && Instant::now() < end
         && args.count.map_or(true, |c| stats.sent < c)
     {
-        pinger.send(seq)?;
+        prober.send(seq)?;
         let sent_at = Instant::now();
         stats.sent += 1;
         probes.insert(seq, Probe { sent: sent_at, pos: None });
@@ -213,8 +243,8 @@ fn run(args: &Args) -> std::io::Result<bool> {
         let deadline = sent_at + timeout;
 
         loop {
-            match pinger.recv(deadline)? {
-                icmp::Recv::Reply { seq: rseq, at } => {
+            match prober.recv(deadline)? {
+                probe::Recv::Reply { seq: rseq, at } => {
                     if rseq == seq {
                         let rtt = (at - sent_at).as_secs_f64() * 1000.0;
                         stats.record_rtt(rtt);
@@ -232,7 +262,7 @@ fn run(args: &Args) -> std::io::Result<bool> {
                     }
                     // unknown seq: not ours to interpret; keep waiting
                 }
-                icmp::Recv::TimedOut { overshoot } => {
+                probe::Recv::TimedOut { overshoot } => {
                     if overshoot > STALL_SLOP {
                         // the OS held us past the deadline — this sample
                         // is compromised. Annotate; never render it as loss.
@@ -251,7 +281,7 @@ fn run(args: &Args) -> std::io::Result<bool> {
                     }
                     break;
                 }
-                icmp::Recv::Interrupted => {
+                probe::Recv::Interrupted => {
                     if INTR.load(Ordering::SeqCst) {
                         break 'run;
                     }
@@ -267,6 +297,41 @@ fn run(args: &Args) -> std::io::Result<bool> {
     let elapsed = start.elapsed().as_secs_f64();
     print_footer(args, dest, &stats, elapsed);
     Ok(stats.replies() > 0)
+}
+
+/// Help gets the banner: ascii "s80" plus a comb swept 0 -> 500 ms through
+/// the actual colormap (log-spaced so the whole wheel shows). Colored only
+/// when stdout is a tty that can take it.
+fn print_help() {
+    const ART: &str = "\
+ ____    ___    ___
+/ ___|  ( _ )  / _ \\
+\\___ \\  / _ \\ | | | |
+ ___) || (_) || |_| |
+|____/  \\___/  \\___/";
+    let is_tty = unsafe { libc::isatty(libc::STDOUT_FILENO) } == 1;
+    let truecolor = std::env::var("COLORTERM")
+        .map(|v| v.contains("truecolor") || v.contains("24bit"))
+        .unwrap_or(false);
+    let paint = |glyph: char, (r, g, b): (u8, u8, u8)| -> String {
+        if !is_tty {
+            glyph.to_string()
+        } else if truecolor {
+            format!("\x1b[38;2;{};{};{}m{}\x1b[0m", r, g, b, glyph)
+        } else {
+            format!("\x1b[38;5;{}m{}\x1b[0m", color::rgb_to_256(r, g, b), glyph)
+        }
+    };
+    println!("{ART}");
+    const SWEEP: usize = 48;
+    let mut comb = String::new();
+    for i in 0..SWEEP {
+        // log-spaced from the 10 µs floor to 500 ms
+        let ms = 0.01 * (500.0_f64 / 0.01).powf(i as f64 / (SWEEP - 1) as f64);
+        comb.push_str(&paint('!', color::rtt_rgb(ms)));
+    }
+    println!("{comb}  0 -> 500 ms\n");
+    println!("{USAGE}");
 }
 
 /// Milliseconds with microsecond resolution below 1 ms.

@@ -50,6 +50,16 @@ sudo sysctl -w net.ipv4.ping_group_range='0 2147483647'
 Falls back to a raw socket (root) if dgram is unavailable. Never shells out
 to `ping`.
 
+**UDP mode** (`-u`) probes like traceroute does: a datagram to a closed high
+port (default 33434) draws an ICMP port-unreachable from the target. On a
+connected UDP socket that arrives as `ECONNREFUSED` — a round-trip proof
+needing no raw socket and no privileges at all. This reaches hosts that
+ignore ICMP echo. Two honest caveats: unreachables carry no sequence number,
+so late detection is off (a reply is matched to the probe in flight — always
+unambiguous while nothing crosses its own timeout), and many devices
+rate-limit unreachables (Linux default ~1/s) — a sparse-but-steady comb
+against such a box is the policer talking, not the path.
+
 ## Usage
 
 ```
@@ -58,6 +68,8 @@ s80 [options] <target>
   -t, --secs <n>      run duration in seconds (default 10, max 600)
   -c, --count <n>     stop after n probes
   -T, --timeout <ms>  fixed probe timeout (default: adaptive)
+  -u, --udp           UDP probes (for hosts that ignore ICMP echo)
+      --port <n>      UDP destination port (default 33434)
       --color <when>  auto | always | never
       --256           force 256-color palette
 ```
