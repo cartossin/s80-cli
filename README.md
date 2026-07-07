@@ -77,7 +77,7 @@ s80 [options] <target>
 
   -c, --count <n>     stop after n probes (default 1000; 0 = unlimited)
   -t, --secs <n>      stop after n seconds instead (0 = unlimited)
-  -d, --delay <ms>    gap between probes, fractional down to 0.001 (1 us)
+  -d, --delay <ms>    delay between probes in milliseconds
   -T, --timeout <ms>  fixed probe timeout (default: adaptive)
   -u, --udp           UDP probes (for hosts that ignore ICMP echo)
       --port <n>      UDP destination port (default 33434)

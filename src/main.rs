@@ -62,7 +62,7 @@ usage: s80 [options] <target>
 
   -c, --count <n>     stop after n probes (default 1000; 0 = unlimited)
   -t, --secs <n>      stop after n seconds instead (0 = unlimited)
-  -d, --delay <ms>    gap between probes, fractional down to 0.001 (1 us)
+  -d, --delay <ms>    delay between probes in milliseconds
   -T, --timeout <ms>  fixed probe timeout (default: adaptive, 4 x recent p95)
   -u, --udp           UDP probes, traceroute-style: a closed high port draws
                       an ICMP port-unreachable — works on hosts that ignore
