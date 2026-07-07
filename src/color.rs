@@ -63,7 +63,11 @@ fn hsl_to_rgb(h: f64, s: f64, l: f64) -> (u8, u8, u8) {
         g = l;
         b = l;
     } else {
-        let q = if l < 0.5 { l * (1.0 + s) } else { l + s - l * s };
+        let q = if l < 0.5 {
+            l * (1.0 + s)
+        } else {
+            l + s - l * s
+        };
         let p = 2.0 * l - q;
         r = hue_to_rgb(p, q, h + 1.0 / 3.0);
         g = hue_to_rgb(p, q, h);

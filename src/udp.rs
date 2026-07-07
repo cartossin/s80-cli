@@ -85,7 +85,10 @@ impl Prober for UdpProber {
                     });
                 }
                 Err(e)
-                    if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => {}
+                    if matches!(
+                        e.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) => {}
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => return Ok(Recv::Interrupted),
                 // other async errors (host/net unreachable from a mid-path
                 // router) aren't a round trip to the target; keep waiting
@@ -95,5 +98,4 @@ impl Prober for UdpProber {
             }
         }
     }
-
 }

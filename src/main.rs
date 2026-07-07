@@ -50,7 +50,6 @@ struct Args {
     port: u16,
 }
 
-#[derive(PartialEq)]
 enum ColorChoice {
     Auto,
     Always,
@@ -207,10 +206,9 @@ fn parse_args() -> Result<Args, String> {
 }
 
 fn resolve(target: &str) -> std::io::Result<SocketAddr> {
-    let addrs = format!("{target}:0").to_socket_addrs()?;
-    addrs
-        .filter(|a| a.is_ipv4())
-        .next()
+    format!("{target}:0")
+        .to_socket_addrs()?
+        .find(|a| a.is_ipv4())
         .ok_or_else(|| std::io::Error::other("no IPv4 address for target (IPv6: soon)"))
 }
 
@@ -284,13 +282,19 @@ fn run(args: &Args) -> std::io::Result<bool> {
     }
 
     'run: while !INTR.load(Ordering::SeqCst)
-        && end.map_or(true, |e| Instant::now() < e)
-        && count.map_or(true, |c| stats.sent < c)
+        && end.is_none_or(|e| Instant::now() < e)
+        && count.is_none_or(|c| stats.sent < c)
     {
         prober.send(seq)?;
         let sent_at = Instant::now();
         stats.sent += 1;
-        probes.insert(seq, Probe { sent: sent_at, pos: None });
+        probes.insert(
+            seq,
+            Probe {
+                sent: sent_at,
+                pos: None,
+            },
+        );
         let timeout = args.fixed_timeout.unwrap_or_else(|| stats.timeout());
         let deadline = sent_at + timeout;
 
@@ -365,8 +369,8 @@ fn run(args: &Args) -> std::io::Result<bool> {
 
         let gap = args.delay.max(auto_delay);
         let more = !INTR.load(Ordering::SeqCst)
-            && end.map_or(true, |e| Instant::now() < e)
-            && count.map_or(true, |c| stats.sent < c);
+            && end.is_none_or(|e| Instant::now() < e)
+            && count.is_none_or(|c| stats.sent < c);
         if !gap.is_zero() && more {
             wait_gap(prober.as_mut(), gap, &mut probes, &mut stats, &mut strip)?;
         }
@@ -420,9 +424,7 @@ fn wait_gap(
                 return Ok(());
             }
             match prober.recv(listen_until)? {
-                probe::Recv::Reply { seq: rseq, at } => {
-                    handle_late(rseq, at, probes, stats, strip)
-                }
+                probe::Recv::Reply { seq: rseq, at } => handle_late(rseq, at, probes, stats, strip),
                 probe::Recv::TimedOut { .. } => break,
                 probe::Recv::Interrupted => {}
             }

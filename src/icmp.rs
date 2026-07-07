@@ -39,7 +39,6 @@ impl Pinger {
             buf: unsafe { std::mem::MaybeUninit::uninit().assume_init() },
         })
     }
-
 }
 
 impl Prober for Pinger {
@@ -80,13 +79,16 @@ impl Prober for Pinger {
                         });
                     }
                 }
-                Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => {}
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) => {}
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => return Ok(Recv::Interrupted),
                 Err(e) => return Err(e),
             }
         }
     }
-
 }
 
 /// Returns the sequence number if `raw` is an ICMP echo reply.

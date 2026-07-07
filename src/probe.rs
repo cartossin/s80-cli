@@ -5,10 +5,15 @@ use std::io;
 use std::time::{Duration, Instant};
 
 pub enum Recv {
-    Reply { seq: u16, at: Instant },
+    Reply {
+        seq: u16,
+        at: Instant,
+    },
     /// Deadline passed. `overshoot` far beyond the deadline means the OS
     /// stalled us (scheduler, sleep) — the sample is a lie, not a loss.
-    TimedOut { overshoot: Duration },
+    TimedOut {
+        overshoot: Duration,
+    },
     Interrupted,
 }
 
