@@ -197,7 +197,8 @@ fn parse_args() -> Result<Args, String> {
         }
     }
     if args.target.is_empty() {
-        return Err(USAGE.to_string());
+        print_help();
+        std::process::exit(2);
     }
     if args.count.is_none() && args.secs.is_none() {
         args.count = Some(DEFAULT_COUNT);
