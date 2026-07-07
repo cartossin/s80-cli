@@ -1,12 +1,26 @@
 //! RTT → color, ported from s80.me: log-scale hue wheel, green (~1 ms)
 //! through yellow/orange to red (~1.5 s). HSL with s=1, l=0.5.
 
+static COLORMAP: std::sync::OnceLock<[(u8, u8, u8); 1500]> = std::sync::OnceLock::new();
+
 /// Map an RTT in milliseconds to an RGB color on the s80 wheel.
-/// Input is clamped to [1, 1499] ms like the web version.
+/// Table lookup like the web version: precomputed per integer ms,
+/// input clamped to [1, 1499].
 pub fn rtt_rgb(rtt_ms: f64) -> (u8, u8, u8) {
-    let x = rtt_ms.clamp(1.0, 1499.0);
+    let map = COLORMAP.get_or_init(|| {
+        let mut m = [(0, 0, 0); 1500];
+        for (x, slot) in m.iter_mut().enumerate().skip(1) {
+            *slot = compute_rgb(x as f64);
+        }
+        m[0] = m[1];
+        m
+    });
+    map[(rtt_ms.round() as usize).min(1499)]
+}
+
+fn compute_rgb(x: f64) -> (u8, u8, u8) {
     // web: i = round((100 - (ln(x)/6)*100) + 30); hue = i * 1.2 / 360
-    let i = (100.0 - (x.ln() / 6.0) * 100.0 + 30.0).clamp(0.0, 130.0);
+    let i = (100.0 - (x.ln() / 6.0) * 100.0 + 30.0).round().clamp(0.0, 130.0);
     let hue = i * 1.2 / 360.0;
     hsl_to_rgb(hue, 1.0, 0.5)
 }
@@ -85,5 +99,12 @@ mod tests {
     fn clamps() {
         assert_eq!(rtt_rgb(0.01), rtt_rgb(1.0));
         assert_eq!(rtt_rgb(9999.0), rtt_rgb(1499.0));
+    }
+
+    #[test]
+    fn table_quantizes_to_integer_ms_like_web() {
+        assert_eq!(rtt_rgb(4.4), rtt_rgb(4.0));
+        assert_eq!(rtt_rgb(4.6), rtt_rgb(5.0));
+        assert_eq!(rtt_rgb(700.0), compute_rgb(700.0));
     }
 }
