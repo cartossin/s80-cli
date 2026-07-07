@@ -57,8 +57,11 @@ needing no raw socket and no privileges at all. This reaches hosts that
 ignore ICMP echo. Two honest caveats: unreachables carry no sequence number,
 so late detection is off (a reply is matched to the probe in flight — always
 unambiguous while nothing crosses its own timeout), and many devices
-rate-limit unreachables (Linux default ~1/s) — a sparse-but-steady comb
-against such a box is the policer talking, not the path.
+rate-limit unreachables — so UDP mode watches for drops and paces itself:
+each drop grows the inter-probe gap (AIMD, like TCP), clean streaks decay it
+to re-probe the limit, and the footer reports where the pace settled. Drops
+eaten during convergence still count as lost — pacing adapts, it doesn't
+launder. `-d` sets the pace floor.
 
 ## Usage
 
@@ -67,6 +70,7 @@ s80 [options] <target>
 
   -c, --count <n>     stop after n probes (default 1000)
   -t, --secs <n>      stop after n seconds instead
+  -d, --delay <ms>    minimum gap between probes (fractional ok: 0.001 = 1 us)
   -T, --timeout <ms>  fixed probe timeout (default: adaptive)
   -u, --udp           UDP probes (for hosts that ignore ICMP echo)
       --port <n>      UDP destination port (default 33434)
