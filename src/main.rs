@@ -22,6 +22,12 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_COUNT: u64 = 1000;
 const STALL_SLOP: Duration = Duration::from_millis(300);
 const LATE_WINDOW: Duration = Duration::from_secs(10);
+// UDP auto-pacing: grow delay ~1.5x per drop, decay 10% per clean streak
+const PACE_STEP_MIN: Duration = Duration::from_millis(10);
+const PACE_CAP: Duration = Duration::from_secs(2);
+const PACE_DECAY_STREAK: u32 = 20;
+// below this, sleeping can't hit the mark (OS timer slack) — spin instead
+const SPIN_MAX: Duration = Duration::from_millis(1);
 
 static INTR: AtomicBool = AtomicBool::new(false);
 
@@ -36,6 +42,7 @@ struct Args {
     target: String,
     secs: Option<f64>,
     count: Option<u64>,
+    delay: Duration,
     fixed_timeout: Option<Duration>,
     color: ColorChoice,
     force_256: bool,
@@ -55,11 +62,14 @@ usage: s80 [options] <target>
 
   -c, --count <n>     stop after n probes (default 1000)
   -t, --secs <n>      stop after n seconds instead
+  -d, --delay <ms>    minimum gap between probes (fractional ok, us
+                      resolution: 0.001 = 1 us; default 0 = self-clocked)
   -T, --timeout <ms>  fixed probe timeout (default: adaptive, 4 x recent p95)
   -u, --udp           UDP probes, traceroute-style: a closed high port draws
                       an ICMP port-unreachable — works on hosts that ignore
-                      echo. (Late detection is off; sparse combs against
-                      Linux boxes are their ~1/s unreachable rate-limit.)
+                      echo. Devices rate-limit unreachables, so drops
+                      auto-engage pacing: delay grows until replies hold,
+                      then decays to re-probe the limit (-d sets the floor)
       --port <n>      UDP destination port (default 33434)
       --color <when>  auto | always | never (default auto)
       --256           force 256-color palette (default: truecolor if COLORTERM)
@@ -93,6 +103,7 @@ fn parse_args() -> Result<Args, String> {
         target: String::new(),
         secs: None,
         count: None,
+        delay: Duration::ZERO,
         fixed_timeout: None,
         color: ColorChoice::Auto,
         force_256: false,
@@ -129,6 +140,15 @@ fn parse_args() -> Result<Args, String> {
                         .parse::<u64>()
                         .map_err(|_| "s80: -c wants a probe count")?,
                 );
+            }
+            "-d" | "--delay" => {
+                let ms = val("-d")?
+                    .parse::<f64>()
+                    .map_err(|_| "s80: -d wants milliseconds (fractional ok)")?;
+                if ms < 0.0 || !ms.is_finite() {
+                    return Err("s80: -d wants a non-negative delay".into());
+                }
+                args.delay = Duration::from_secs_f64(ms / 1000.0);
             }
             "-T" | "--timeout" => {
                 let ms: u64 = val("-T")?
@@ -231,6 +251,18 @@ fn run(args: &Args) -> std::io::Result<bool> {
     let end = args.secs.map(|s| start + Duration::from_secs_f64(s));
     let mut seq: u16 = 0;
 
+    // UDP auto-pacing state (see wait_gap / USAGE)
+    let mut auto_delay = Duration::ZERO;
+    let mut pace_peak = Duration::ZERO;
+    let mut clean_streak: u32 = 0;
+    let mut pace_noted = false;
+
+    enum Outcome {
+        Replied,
+        Lost,
+        Voided,
+    }
+
     'run: while !INTR.load(Ordering::SeqCst)
         && end.map_or(true, |e| Instant::now() < e)
         && args.count.map_or(true, |c| stats.sent < c)
@@ -242,7 +274,7 @@ fn run(args: &Args) -> std::io::Result<bool> {
         let timeout = args.fixed_timeout.unwrap_or_else(|| stats.timeout());
         let deadline = sent_at + timeout;
 
-        loop {
+        let outcome = loop {
             match prober.recv(deadline)? {
                 probe::Recv::Reply { seq: rseq, at } => {
                     if rseq == seq {
@@ -250,17 +282,9 @@ fn run(args: &Args) -> std::io::Result<bool> {
                         stats.record_rtt(rtt);
                         comb.put('!', Some(color::rtt_rgb(rtt)));
                         probes.remove(&seq);
-                        break; // reply landed: send the next probe NOW
+                        break Outcome::Replied; // reply landed: next probe NOW
                     }
-                    // a reply to an older, timed-out probe: late, not lost
-                    if let Some(p) = probes.remove(&rseq) {
-                        let rtt = (at - p.sent).as_secs_f64() * 1000.0;
-                        stats.lost_becomes_late(rtt);
-                        if let Some(pos) = p.pos {
-                            comb.repaint(pos, ',', Some(color::rtt_rgb(rtt)));
-                        }
-                    }
-                    // unknown seq: not ours to interpret; keep waiting
+                    handle_late(rseq, at, &mut probes, &mut stats, &mut comb);
                 }
                 probe::Recv::TimedOut { overshoot } => {
                     if overshoot > STALL_SLOP {
@@ -272,14 +296,14 @@ fn run(args: &Args) -> std::io::Result<bool> {
                             "[stall {}ms — sample voided]",
                             overshoot.as_millis()
                         ));
-                    } else {
-                        stats.lost += 1;
-                        let pos = comb.put('.', None);
-                        if let Some(p) = probes.get_mut(&seq) {
-                            p.pos = Some(pos);
-                        }
+                        break Outcome::Voided;
                     }
-                    break;
+                    stats.lost += 1;
+                    let pos = comb.put('.', None);
+                    if let Some(p) = probes.get_mut(&seq) {
+                        p.pos = Some(pos);
+                    }
+                    break Outcome::Lost;
                 }
                 probe::Recv::Interrupted => {
                     if INTR.load(Ordering::SeqCst) {
@@ -287,16 +311,107 @@ fn run(args: &Args) -> std::io::Result<bool> {
                     }
                 }
             }
+        };
+
+        // UDP auto-pacing: devices rate-limit unreachables, so drops mean
+        // "slower" more often than "lost". Grow the gap on each drop until
+        // replies hold; decay it on clean streaks to re-probe the limit.
+        // (Voided samples say nothing about the path — they don't steer.)
+        if args.udp {
+            match outcome {
+                Outcome::Replied => {
+                    clean_streak += 1;
+                    if clean_streak >= PACE_DECAY_STREAK {
+                        auto_delay = auto_delay * 9 / 10;
+                        clean_streak = 0;
+                    }
+                }
+                Outcome::Lost => {
+                    clean_streak = 0;
+                    auto_delay = (auto_delay + (auto_delay / 2).max(PACE_STEP_MIN)).min(PACE_CAP);
+                    if !pace_noted {
+                        comb.note("[drops on udp — auto-pacing engaged]");
+                        pace_noted = true;
+                    }
+                }
+                Outcome::Voided => {}
+            }
+            pace_peak = pace_peak.max(auto_delay);
         }
 
         // retire timed-out probes past the late window: they stay lost
         probes.retain(|_, p| p.sent.elapsed() < LATE_WINDOW);
         seq = seq.wrapping_add(1);
+
+        let gap = args.delay.max(auto_delay);
+        let more = !INTR.load(Ordering::SeqCst)
+            && end.map_or(true, |e| Instant::now() < e)
+            && args.count.map_or(true, |c| stats.sent < c);
+        if !gap.is_zero() && more {
+            wait_gap(prober.as_mut(), gap, &mut probes, &mut stats, &mut comb)?;
+        }
     }
 
     let elapsed = start.elapsed().as_secs_f64();
-    print_footer(args, dest, &stats, elapsed);
+    let pace = if pace_peak > Duration::ZERO {
+        Some((auto_delay, pace_peak))
+    } else {
+        None
+    };
+    print_footer(args, dest, &stats, elapsed, pace);
     Ok(stats.replies() > 0)
+}
+
+/// A reply to an older, timed-out probe: late, not lost.
+fn handle_late(
+    rseq: u16,
+    at: Instant,
+    probes: &mut HashMap<u16, Probe>,
+    stats: &mut stats::Stats,
+    comb: &mut term::Comb,
+) {
+    if let Some(p) = probes.remove(&rseq) {
+        let rtt = (at - p.sent).as_secs_f64() * 1000.0;
+        stats.lost_becomes_late(rtt);
+        if let Some(pos) = p.pos {
+            comb.repaint(pos, ',', Some(color::rtt_rgb(rtt)));
+        }
+    }
+    // unknown seq: not ours to interpret
+}
+
+/// Hold the inter-probe gap. Short gaps spin (the OS can't wake a sleeper
+/// on a microsecond mark); longer gaps keep listening on the socket, so
+/// late replies are timestamped on arrival and ^C stays responsive.
+fn wait_gap(
+    prober: &mut dyn probe::Prober,
+    gap: Duration,
+    probes: &mut HashMap<u16, Probe>,
+    stats: &mut stats::Stats,
+    comb: &mut term::Comb,
+) -> std::io::Result<()> {
+    let until = Instant::now() + gap;
+    // listen until SPIN_MAX before the mark (socket wakeups carry ~1 ms of
+    // timer slack), then spin the final stretch to land on the microsecond
+    if gap >= SPIN_MAX {
+        let listen_until = until - SPIN_MAX;
+        loop {
+            if INTR.load(Ordering::SeqCst) {
+                return Ok(());
+            }
+            match prober.recv(listen_until)? {
+                probe::Recv::Reply { seq: rseq, at } => {
+                    handle_late(rseq, at, probes, stats, comb)
+                }
+                probe::Recv::TimedOut { .. } => break,
+                probe::Recv::Interrupted => {}
+            }
+        }
+    }
+    while Instant::now() < until {
+        std::hint::spin_loop();
+    }
+    Ok(())
 }
 
 /// Help gets the banner: ascii "s80" plus a comb swept 0 -> 500 ms through
@@ -339,7 +454,13 @@ fn fmt_ms(v: f64) -> String {
     format!("{:.3}", v)
 }
 
-fn print_footer(args: &Args, dest: SocketAddr, stats: &stats::Stats, elapsed: f64) {
+fn print_footer(
+    args: &Args,
+    dest: SocketAddr,
+    stats: &stats::Stats,
+    elapsed: f64,
+    pace: Option<(Duration, Duration)>,
+) {
     let completed = stats.replies() + stats.lost;
     let pct = |n: u64| {
         if completed == 0 {
@@ -376,4 +497,12 @@ fn print_footer(args: &Args, dest: SocketAddr, stats: &stats::Stats, elapsed: f6
         elapsed,
         stats.sent as f64 / elapsed.max(0.001)
     );
+    if let Some((current, peak)) = pace {
+        println!(
+            "auto-pace settled at {}ms (peak {}ms) — the target rate-limits; \
+             pace-masked drops still count as lost above",
+            fmt_ms(current.as_secs_f64() * 1000.0),
+            fmt_ms(peak.as_secs_f64() * 1000.0)
+        );
+    }
 }
