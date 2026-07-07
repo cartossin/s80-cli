@@ -269,6 +269,15 @@ fn run(args: &Args) -> std::io::Result<bool> {
     Ok(stats.replies() > 0)
 }
 
+/// Milliseconds with microsecond resolution below 1 ms.
+fn fmt_ms(v: f64) -> String {
+    if v < 1.0 {
+        format!("{:.3}", v)
+    } else {
+        format!("{:.2}", v)
+    }
+}
+
 fn print_footer(args: &Args, dest: SocketAddr, stats: &stats::Stats, elapsed: f64) {
     let completed = stats.replies() + stats.lost;
     let pct = |n: u64| {
@@ -281,13 +290,13 @@ fn print_footer(args: &Args, dest: SocketAddr, stats: &stats::Stats, elapsed: f6
     println!("\n--- s80 {} ({}) ---", args.target, dest.ip());
     match stats.summary() {
         Some((min, avg, p95, max)) => println!(
-            "{} probes  {} replies  min/avg/p95/max = {:.2}/{:.2}/{:.2}/{:.2} ms",
+            "{} probes  {} replies  min/avg/p95/max = {}/{}/{}/{} ms",
             stats.sent,
             stats.replies(),
-            min,
-            avg,
-            p95,
-            max
+            fmt_ms(min),
+            fmt_ms(avg),
+            fmt_ms(p95),
+            fmt_ms(max)
         ),
         None => println!("{} probes  0 replies", stats.sent),
     }
