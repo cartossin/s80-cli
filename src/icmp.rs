@@ -7,7 +7,7 @@ use crate::probe::{Prober, Recv};
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use std::io;
 use std::net::SocketAddr;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 const PAYLOAD: &[u8] = b"s80!s80!s80!s80!s80!s80!"; // 24 bytes
 
@@ -64,7 +64,11 @@ impl Prober for Pinger {
                     overshoot: now - deadline,
                 });
             }
-            self.sock.set_read_timeout(Some(deadline - now))?;
+            // clamp: a sub-µs remainder truncates to a zero timeval, and a
+            // zero SO_RCVTIMEO means "block forever" — the deadline check
+            // above re-arms, so rounding up is safe; rounding down hangs
+            self.sock
+                .set_read_timeout(Some((deadline - now).max(Duration::from_micros(1))))?;
             match self.sock.recv(&mut self.buf) {
                 Ok(n) => {
                     let raw =

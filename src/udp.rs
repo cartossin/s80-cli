@@ -15,7 +15,7 @@ use crate::probe::{Prober, Recv};
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use std::io;
 use std::net::SocketAddr;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub const DEFAULT_PORT: u16 = 33434; // traceroute's classic base port
 
@@ -64,7 +64,10 @@ impl Prober for UdpProber {
                     overshoot: now - deadline,
                 });
             }
-            self.sock.set_read_timeout(Some(deadline - now))?;
+            // sub-µs remainders truncate to a zero timeval = block forever;
+            // round up — the deadline check above re-arms
+            self.sock
+                .set_read_timeout(Some((deadline - now).max(Duration::from_micros(1))))?;
             match self.sock.recv(&mut self.buf) {
                 // port unreachable came back: round trip proven
                 Err(e) if e.kind() == io::ErrorKind::ConnectionRefused => {
