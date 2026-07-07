@@ -1,4 +1,4 @@
-//! The comb: glyph stream with wrap tracking, so a late reply can
+//! The tick strip: glyph stream with wrap tracking, so a late reply can
 //! retroactively repaint its `.` into a `,` via cursor escapes.
 
 use std::io::{self, Write};
@@ -16,7 +16,7 @@ pub struct GlyphPos {
     col: u16,
 }
 
-pub struct Comb {
+pub struct Strip {
     out: io::Stdout,
     ansi: bool,
     mode: ColorMode,
@@ -26,10 +26,10 @@ pub struct Comb {
     row: u64, // absolute row index of the line the cursor is on
 }
 
-impl Comb {
+impl Strip {
     pub fn new(ansi: bool, mode: ColorMode) -> Self {
         let (width, height) = winsize().unwrap_or((80, 24));
-        Comb {
+        Strip {
             out: io::stdout(),
             ansi,
             mode: if ansi { mode } else { ColorMode::None },
@@ -40,7 +40,7 @@ impl Comb {
         }
     }
 
-    /// Print one glyph at the cursor, advancing (and wrapping) the comb.
+    /// Print one glyph at the cursor, advancing (and wrapping) the strip.
     /// Returns where it landed so it can be repainted later.
     pub fn put(&mut self, glyph: char, rgb: Option<(u8, u8, u8)>) -> GlyphPos {
         let pos = GlyphPos {
@@ -83,7 +83,7 @@ impl Comb {
         let _ = self.out.flush();
     }
 
-    /// Out-of-band annotation (e.g. a detected stall). Breaks the comb line.
+    /// Out-of-band annotation (e.g. a detected stall). Breaks the strip.
     pub fn note(&mut self, text: &str) {
         let mut buf = String::new();
         if self.col > 0 {

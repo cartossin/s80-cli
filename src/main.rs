@@ -245,7 +245,7 @@ fn run(args: &Args) -> std::io::Result<bool> {
     } else {
         term::ColorMode::Truecolor
     };
-    let mut comb = term::Comb::new(ansi, mode);
+    let mut strip = term::Strip::new(ansi, mode);
     let mut stats = stats::Stats::new();
     let mut probes: HashMap<u16, Probe> = HashMap::new();
 
@@ -294,11 +294,11 @@ fn run(args: &Args) -> std::io::Result<bool> {
                     if rseq == seq {
                         let rtt = (at - sent_at).as_secs_f64() * 1000.0;
                         stats.record_rtt(rtt);
-                        comb.put('!', Some(color::rtt_rgb(rtt)));
+                        strip.put('!', Some(color::rtt_rgb(rtt)));
                         probes.remove(&seq);
                         break Outcome::Replied; // reply landed: next probe NOW
                     }
-                    handle_late(rseq, at, &mut probes, &mut stats, &mut comb);
+                    handle_late(rseq, at, &mut probes, &mut stats, &mut strip);
                 }
                 probe::Recv::TimedOut { overshoot } => {
                     if overshoot > STALL_SLOP {
@@ -306,14 +306,14 @@ fn run(args: &Args) -> std::io::Result<bool> {
                         // is compromised. Annotate; never render it as loss.
                         stats.voided += 1;
                         probes.remove(&seq);
-                        comb.note(&format!(
+                        strip.note(&format!(
                             "[stall {}ms — sample voided]",
                             overshoot.as_millis()
                         ));
                         break Outcome::Voided;
                     }
                     stats.lost += 1;
-                    let pos = comb.put('.', None);
+                    let pos = strip.put('.', None);
                     if let Some(p) = probes.get_mut(&seq) {
                         p.pos = Some(pos);
                     }
@@ -344,7 +344,7 @@ fn run(args: &Args) -> std::io::Result<bool> {
                     clean_streak = 0;
                     auto_delay = (auto_delay + (auto_delay / 2).max(PACE_STEP_MIN)).min(PACE_CAP);
                     if !pace_noted {
-                        comb.note("[drops on udp — auto-pacing engaged]");
+                        strip.note("[drops on udp — auto-pacing engaged]");
                         pace_noted = true;
                     }
                 }
@@ -362,7 +362,7 @@ fn run(args: &Args) -> std::io::Result<bool> {
             && end.map_or(true, |e| Instant::now() < e)
             && count.map_or(true, |c| stats.sent < c);
         if !gap.is_zero() && more {
-            wait_gap(prober.as_mut(), gap, &mut probes, &mut stats, &mut comb)?;
+            wait_gap(prober.as_mut(), gap, &mut probes, &mut stats, &mut strip)?;
         }
     }
 
@@ -382,13 +382,13 @@ fn handle_late(
     at: Instant,
     probes: &mut HashMap<u16, Probe>,
     stats: &mut stats::Stats,
-    comb: &mut term::Comb,
+    strip: &mut term::Strip,
 ) {
     if let Some(p) = probes.remove(&rseq) {
         let rtt = (at - p.sent).as_secs_f64() * 1000.0;
         stats.lost_becomes_late(rtt);
         if let Some(pos) = p.pos {
-            comb.repaint(pos, ',', Some(color::rtt_rgb(rtt)));
+            strip.repaint(pos, ',', Some(color::rtt_rgb(rtt)));
         }
     }
     // unknown seq: not ours to interpret
@@ -402,7 +402,7 @@ fn wait_gap(
     gap: Duration,
     probes: &mut HashMap<u16, Probe>,
     stats: &mut stats::Stats,
-    comb: &mut term::Comb,
+    strip: &mut term::Strip,
 ) -> std::io::Result<()> {
     let until = Instant::now() + gap;
     // listen until SPIN_MAX before the mark (socket wakeups carry ~1 ms of
@@ -415,7 +415,7 @@ fn wait_gap(
             }
             match prober.recv(listen_until)? {
                 probe::Recv::Reply { seq: rseq, at } => {
-                    handle_late(rseq, at, probes, stats, comb)
+                    handle_late(rseq, at, probes, stats, strip)
                 }
                 probe::Recv::TimedOut { .. } => break,
                 probe::Recv::Interrupted => {}
@@ -428,7 +428,7 @@ fn wait_gap(
     Ok(())
 }
 
-/// Help gets the banner: ascii "s80" plus a comb swept 0 -> 500 ms through
+/// Help gets the banner: ascii "s80" plus ticks swept 0 -> 500 ms through
 /// the actual colormap (log-spaced so the whole wheel shows). Colored only
 /// when stdout is a tty that can take it.
 fn print_help() {
@@ -453,13 +453,13 @@ fn print_help() {
     };
     println!("{ART}");
     const SWEEP: usize = 48;
-    let mut comb = String::new();
+    let mut strip = String::new();
     for i in 0..SWEEP {
         // log-spaced from the 10 µs floor to 500 ms
         let ms = 0.01 * (500.0_f64 / 0.01).powf(i as f64 / (SWEEP - 1) as f64);
-        comb.push_str(&paint('!', color::rtt_rgb(ms)));
+        strip.push_str(&paint('!', color::rtt_rgb(ms)));
     }
-    println!("{comb}  0 -> 500 ms\n");
+    println!("{strip}  0 -> 500 ms\n");
     println!("{USAGE}");
 }
 

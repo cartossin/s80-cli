@@ -24,7 +24,7 @@ stutter your eye catches pre-attentively.
 
 - `!` — reply, colored on a log-scale wheel from blue (µs territory) through
   green (~1 ms) to red (~1.5 s). Above 1 ms the colors match s80.me exactly;
-  below it the same formula keeps going, so a LAN comb has visible texture
+  below it the same formula keeps going, so LAN ticks have visible texture
   instead of uniform green
 - `.` — timeout
 - `,` — late: the reply arrived *after* its timeout. The `.` is repainted in
@@ -107,10 +107,10 @@ refuse.
 
 ## Roadmap
 
-- `--dash`: ratatui dashboard, multi-target panes, side-by-side combs — the
-  killer demo is a comb to the gateway next to a comb to the internet:
-  "is it my Wi-Fi or my ISP?" answered visually in ten seconds
-- Per-hop mode: mtr-style TTL probing, one comb line per hop, with ICMP
+- `--dash`: ratatui dashboard, multi-target panes, side-by-side tick strips —
+  the killer demo is the gateway next to the internet: "is it my Wi-Fi or my
+  ISP?" answered visually in ten seconds
+- Per-hop mode: mtr-style TTL probing, one tick strip per hop, with ICMP
   policers detected by their signature (perfectly periodic gaps) and labeled
   instead of shown as fake loss
 - IPv6

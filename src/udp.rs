@@ -8,7 +8,7 @@
 //! reply carries no sequence number, so it's attributed to the probe in
 //! flight (unambiguous while serial, but a reply that crosses its own
 //! timeout boundary lands on the next probe), and many devices rate-limit
-//! unreachables (Linux default: ~1/s) — a sparse comb against such a box
+//! unreachables (Linux default: ~1/s) — sparse ticks against such a box
 //! is the policer talking, not the path.
 
 use crate::probe::{Prober, Recv};
