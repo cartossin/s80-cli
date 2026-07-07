@@ -438,12 +438,11 @@ fn wait_gap(
 /// the actual colormap (log-spaced so the whole wheel shows). Colored only
 /// when stdout is a tty that can take it.
 fn print_help() {
-    const ART: &str = "\
- ____    ___    ___
-/ ___|  ( _ )  / _ \\
-\\___ \\  / _ \\ | | | |
+    const ART: &str = r" ____    ___    ___
+/ ___|  ( _ )  / _ \
+\___ \  / _ \ | | | |
  ___) || (_) || |_| |
-|____/  \\___/  \\___/";
+|____/  \___/  \___/";
     let is_tty = unsafe { libc::isatty(libc::STDOUT_FILENO) } == 1;
     let truecolor = std::env::var("COLORTERM")
         .map(|v| v.contains("truecolor") || v.contains("24bit"))
