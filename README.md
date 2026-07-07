@@ -78,6 +78,13 @@ s80 [options] <target>
       --256           force 256-color palette
 ```
 
+**Spaced probes read slower — that's real.** With `-d`, RTTs rise (on some
+machines several-fold): between probes the CPU downclocks, caches cool, and
+the kernel's hot path goes cold, so each spaced probe pays wake-up costs a
+back-to-back probe doesn't. The system's own `ping -i 1` shows it worse.
+Dense probing measures your best case; spaced probing measures what
+intermittent traffic actually experiences. Both are true.
+
 Output is pipeable: when stdout isn't a tty, ANSI is dropped
 (`s80 gw | tee incident.log`).
 
