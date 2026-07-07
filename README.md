@@ -89,10 +89,9 @@ refuse.
 
 ## Roadmap
 
-- `--dash`: ratatui dashboard, multi-target panes, side-by-side combs
-- ARP ping (isolate the Wi-Fi/L2 hop) — the killer demo is an ARP comb to the
-  gateway next to an ICMP comb to the internet: "is it my Wi-Fi or my ISP?"
-  answered visually in ten seconds
+- `--dash`: ratatui dashboard, multi-target panes, side-by-side combs — the
+  killer demo is a comb to the gateway next to a comb to the internet:
+  "is it my Wi-Fi or my ISP?" answered visually in ten seconds
 - Per-hop mode: mtr-style TTL probing, one comb line per hop, with ICMP
   policers detected by their signature (perfectly periodic gaps) and labeled
   instead of shown as fake loss
