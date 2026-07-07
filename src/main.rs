@@ -20,7 +20,6 @@ use std::time::{Duration, Instant};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_COUNT: u64 = 1000;
-const MAX_SECS: f64 = 600.0;
 const STALL_SLOP: Duration = Duration::from_millis(300);
 const LATE_WINDOW: Duration = Duration::from_secs(10);
 
@@ -55,7 +54,7 @@ const USAGE: &str = "\
 usage: s80 [options] <target>
 
   -c, --count <n>     stop after n probes (default 1000)
-  -t, --secs <n>      stop after n seconds instead (max 600)
+  -t, --secs <n>      stop after n seconds instead
   -T, --timeout <ms>  fixed probe timeout (default: adaptive, 4 x recent p95)
   -u, --udp           UDP probes, traceroute-style: a closed high port draws
                       an ICMP port-unreachable — works on hosts that ignore
@@ -119,11 +118,8 @@ fn parse_args() -> Result<Args, String> {
                 let secs = val("-t")?
                     .parse::<f64>()
                     .map_err(|_| "s80: -t wants a number of seconds")?;
-                if !(0.1..=MAX_SECS).contains(&secs) {
-                    return Err(format!(
-                        "s80: -t must be 0.1..{MAX_SECS} seconds \
-                         (bounded runs by design — it's a probe, not a daemon)"
-                    ));
+                if secs <= 0.0 || !secs.is_finite() {
+                    return Err("s80: -t wants a positive number of seconds".into());
                 }
                 args.secs = Some(secs);
             }
