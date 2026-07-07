@@ -41,14 +41,21 @@ never rendered as loss. Runs are bounded by default (1000 probes): it's a
 probe, not a daemon — going longer takes an explicit -c or -t.
 
 **It owns the socket.** ICMP echo via unprivileged datagram sockets — native
-on macOS; on Linux enable with:
+on macOS, and on Linux this normally works out of the box too: systemd has
+shipped `ping_group_range` wide-open by default since 2018 (Debian 13,
+Ubuntu, Fedora, Arch). Never shells out to `ping`.
+
+Where that default is absent (unprivileged containers silently drop it,
+hardened kernels), pick any one of:
 
 ```
-sudo sysctl -w net.ipv4.ping_group_range='0 2147483647'
+sudo sysctl -w net.ipv4.ping_group_range='0 2147483647'   # the normal default
+sudo setcap cap_net_raw+ep $(which s80)   # per-binary; uses the raw fallback
+s80 -u <target>                           # UDP mode: no privileges, anywhere
 ```
 
-Falls back to a raw socket (root) if dgram is unavailable. Never shells out
-to `ping`.
+(In containers the userns GID map caps the sysctl — use `0 65535`. And file
+capabilities are ignored on `nosuid` mounts like tmpfs `/tmp`.)
 
 **UDP mode** (`-u`) probes like traceroute does: a datagram to a closed high
 port (default 33434) draws an ICMP port-unreachable from the target. On a
