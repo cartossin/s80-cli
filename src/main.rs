@@ -148,6 +148,16 @@ fn parse_args() -> Result<Args, String> {
                 if ms < 0.0 || !ms.is_finite() {
                     return Err("s80: -d wants a non-negative delay".into());
                 }
+                // 1 µs is the smallest honest gap: the spin-wait holds a
+                // mark to ~±50 ns, but below 1 µs the gap is smaller than
+                // the send syscall's own jitter — it would change nothing
+                if ms > 0.0 && ms < 0.001 {
+                    return Err(
+                        "s80: smallest nonzero -d is 0.001 (1 µs) — below that a gap \
+                         disappears into syscall jitter, and s80 doesn't pretend"
+                            .into(),
+                    );
+                }
                 args.delay = Duration::from_secs_f64(ms / 1000.0);
             }
             "-T" | "--timeout" => {
