@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const DEFAULT_SECS: f64 = 10.0;
+const DEFAULT_COUNT: u64 = 1000;
 const MAX_SECS: f64 = 600.0;
 const STALL_SLOP: Duration = Duration::from_millis(300);
 const LATE_WINDOW: Duration = Duration::from_secs(10);
@@ -35,7 +35,7 @@ extern "C" fn on_sigint(_: libc::c_int) {
 
 struct Args {
     target: String,
-    secs: f64,
+    secs: Option<f64>,
     count: Option<u64>,
     fixed_timeout: Option<Duration>,
     color: ColorChoice,
@@ -54,8 +54,8 @@ enum ColorChoice {
 const USAGE: &str = "\
 usage: s80 [options] <target>
 
-  -t, --secs <n>      run duration in seconds (default 10, max 600)
-  -c, --count <n>     stop after n probes
+  -c, --count <n>     stop after n probes (default 1000)
+  -t, --secs <n>      stop after n seconds instead (max 600)
   -T, --timeout <ms>  fixed probe timeout (default: adaptive, 4 x recent p95)
   -u, --udp           UDP probes, traceroute-style: a closed high port draws
                       an ICMP port-unreachable — works on hosts that ignore
@@ -92,7 +92,7 @@ fn main() {
 fn parse_args() -> Result<Args, String> {
     let mut args = Args {
         target: String::new(),
-        secs: DEFAULT_SECS,
+        secs: None,
         count: None,
         fixed_timeout: None,
         color: ColorChoice::Auto,
@@ -116,15 +116,16 @@ fn parse_args() -> Result<Args, String> {
                 std::process::exit(0);
             }
             "-t" | "--secs" => {
-                args.secs = val("-t")?
+                let secs = val("-t")?
                     .parse::<f64>()
                     .map_err(|_| "s80: -t wants a number of seconds")?;
-                if !(0.1..=MAX_SECS).contains(&args.secs) {
+                if !(0.1..=MAX_SECS).contains(&secs) {
                     return Err(format!(
                         "s80: -t must be 0.1..{MAX_SECS} seconds \
                          (bounded runs by design — it's a probe, not a daemon)"
                     ));
                 }
+                args.secs = Some(secs);
             }
             "-c" | "--count" => {
                 args.count = Some(
@@ -167,6 +168,9 @@ fn parse_args() -> Result<Args, String> {
     }
     if args.target.is_empty() {
         return Err(USAGE.to_string());
+    }
+    if args.count.is_none() && args.secs.is_none() {
+        args.count = Some(DEFAULT_COUNT);
     }
     Ok(args)
 }
@@ -228,11 +232,11 @@ fn run(args: &Args) -> std::io::Result<bool> {
     println!("s80 {} ({}){} — ^C for stats", args.target, dest.ip(), mode);
 
     let start = Instant::now();
-    let end = start + Duration::from_secs_f64(args.secs);
+    let end = args.secs.map(|s| start + Duration::from_secs_f64(s));
     let mut seq: u16 = 0;
 
     'run: while !INTR.load(Ordering::SeqCst)
-        && Instant::now() < end
+        && end.map_or(true, |e| Instant::now() < e)
         && args.count.map_or(true, |c| stats.sent < c)
     {
         prober.send(seq)?;

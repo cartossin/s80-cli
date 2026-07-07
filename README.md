@@ -37,7 +37,7 @@ on a 5 ms path shouldn't blind the stream for a fixed 2 seconds.
 
 **It doesn't lie.** Monotonic clock only. If the OS stalls the process past a
 probe's deadline (scheduler, sleep), the sample is annotated and voided —
-never rendered as loss. Runs are bounded by design (default 10 s, max 600):
+never rendered as loss. Runs are bounded by design (default 1000 probes; -t caps at 600 s):
 it's a probe, not a daemon.
 
 **It owns the socket.** ICMP echo via unprivileged datagram sockets — native
@@ -65,8 +65,8 @@ against such a box is the policer talking, not the path.
 ```
 s80 [options] <target>
 
-  -t, --secs <n>      run duration in seconds (default 10, max 600)
-  -c, --count <n>     stop after n probes
+  -c, --count <n>     stop after n probes (default 1000)
+  -t, --secs <n>      stop after n seconds instead (max 600)
   -T, --timeout <ms>  fixed probe timeout (default: adaptive)
   -u, --udp           UDP probes (for hosts that ignore ICMP echo)
       --port <n>      UDP destination port (default 33434)
