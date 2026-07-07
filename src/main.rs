@@ -367,7 +367,7 @@ fn print_footer(args: &Args, dest: SocketAddr, stats: &stats::Stats, elapsed: f6
         String::new()
     };
     println!(
-        "late {} ({:.2}%)  lost {} ({:.2}%){}  elapsed {:.1}s  rate {:.0}/s",
+        "late {} ({:.2}%)  lost {} ({:.2}%){}  elapsed {:.3}s  rate {:.0}/s",
         stats.late,
         pct(stats.late),
         stats.lost,
