@@ -334,13 +334,9 @@ fn print_help() {
     println!("{USAGE}");
 }
 
-/// Milliseconds with microsecond resolution below 1 ms.
+/// Milliseconds, always at the microsecond precision the tool aims for.
 fn fmt_ms(v: f64) -> String {
-    if v < 1.0 {
-        format!("{:.3}", v)
-    } else {
-        format!("{:.2}", v)
-    }
+    format!("{:.3}", v)
 }
 
 fn print_footer(args: &Args, dest: SocketAddr, stats: &stats::Stats, elapsed: f64) {
