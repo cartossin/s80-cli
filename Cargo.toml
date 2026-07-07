@@ -1,0 +1,19 @@
+[package]
+name = "s80-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Terminal-native latency/jitter visualizer — self-clocked ICMP ping-pong with the !!! comb"
+license = "MIT"
+repository = "https://forgejo.0n0.org/cory/s80-cli"
+
+[[bin]]
+name = "s80"
+path = "src/main.rs"
+
+[dependencies]
+socket2 = { version = "0.5", features = ["all"] }
+libc = "0.2"
+
+[profile.release]
+lto = true
+strip = true
