@@ -60,7 +60,7 @@ usage: s80 [options] <target>
   -V, --version       print version
   -h, --help          this text
 
-glyphs:  '!' reply, colored green (fast) -> red (slow) on a log scale
+glyphs:  '!' reply, colored blue (us) -> green (~1ms) -> red (slow), log scale
          '.' timeout   ',' late reply that arrived after its timeout
                            (the '.' is repainted in place when possible)";
 

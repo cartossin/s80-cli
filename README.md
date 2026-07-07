@@ -22,7 +22,10 @@ stutter your eye catches pre-attentively.
 
 **Glyphs.**
 
-- `!` — reply, colored on a log-scale wheel from green (~1 ms) to red (~1.5 s)
+- `!` — reply, colored on a log-scale wheel from blue (µs territory) through
+  green (~1 ms) to red (~1.5 s). Above 1 ms the colors match s80.me exactly;
+  below it the same formula keeps going, so a LAN comb has visible texture
+  instead of uniform green
 - `.` — timeout
 - `,` — late: the reply arrived *after* its timeout. The `.` is repainted in
   place if still on screen, and always tallied separately. Late vs lost is the
