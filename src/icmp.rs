@@ -1,6 +1,7 @@
-//! Own the socket. ICMP echo via unprivileged datagram sockets
-//! (macOS: native; Linux: needs net.ipv4.ping_group_range), with a
-//! raw-socket fallback. Never shells out to ping.
+//! Own the socket. ICMP echo via unprivileged datagram sockets —
+//! native on macOS, gated by net.ipv4.ping_group_range on Linux
+//! (open by default on systemd distros since 2018). No raw sockets,
+//! no privileges, never shells out to ping.
 
 use crate::probe::{Prober, Recv};
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
@@ -18,21 +19,19 @@ pub struct Pinger {
 
 impl Pinger {
     pub fn new(dest: SocketAddr) -> io::Result<Self> {
-        let sock = match Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::ICMPV4)) {
-            Ok(s) => s,
-            Err(_) => Socket::new(Domain::IPV4, Type::RAW, Some(Protocol::ICMPV4)).map_err(
-                |e| {
-                    io::Error::new(
-                        e.kind(),
-                        format!(
-                            "cannot create ICMP socket: {e}\n\
-                             on Linux, allow unprivileged ping:\n  \
-                             sudo sysctl -w net.ipv4.ping_group_range='0 2147483647'"
-                        ),
-                    )
-                },
-            )?,
-        };
+        let sock = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::ICMPV4)).map_err(|e| {
+            io::Error::new(
+                e.kind(),
+                format!(
+                    "cannot create unprivileged ICMP socket: {e}\n\
+                     on Linux this is gated by a sysctl (open by default on \
+                     modern distros, often closed in containers):\n  \
+                     sudo sysctl -w net.ipv4.ping_group_range='0 2147483647'  \
+                     (containers: '0 65535')\n\
+                     UDP probes need no privileges at all: s80 -u <target>"
+                ),
+            )
+        })?;
         sock.connect(&SockAddr::from(dest))?;
         Ok(Pinger {
             sock,
@@ -88,10 +87,10 @@ impl Prober for Pinger {
 
 /// Returns the sequence number if `raw` is an ICMP echo reply.
 ///
-/// Depending on platform and socket type the kernel may hand us the packet
-/// with its IPv4 header still attached (macOS: always; Linux: raw only).
-/// An IPv4 header starts with version nibble 4; an echo reply starts with
-/// type byte 0 — so the first byte disambiguates.
+/// The kernel may hand us the packet with its IPv4 header still attached
+/// (macOS does; Linux dgram doesn't). An IPv4 header starts with version
+/// nibble 4; an echo reply starts with type byte 0 — so the first byte
+/// disambiguates.
 ///
 /// We match on sequence number, not identifier: Linux dgram sockets rewrite
 /// the id (and demux replies to us by it), and the socket is connect()ed,

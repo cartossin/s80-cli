@@ -60,10 +60,9 @@ enum ColorChoice {
 const USAGE: &str = "\
 usage: s80 [options] <target>
 
-  -c, --count <n>     stop after n probes (default 1000)
-  -t, --secs <n>      stop after n seconds instead
-  -d, --delay <ms>    minimum gap between probes (fractional ok, us
-                      resolution: 0.001 = 1 us; default 0 = self-clocked)
+  -c, --count <n>     stop after n probes (default 1000; 0 = unlimited)
+  -t, --secs <n>      stop after n seconds instead (0 = unlimited)
+  -d, --delay <ms>    gap between probes, fractional down to 0.001 (1 us)
   -T, --timeout <ms>  fixed probe timeout (default: adaptive, 4 x recent p95)
   -u, --udp           UDP probes, traceroute-style: a closed high port draws
                       an ICMP port-unreachable — works on hosts that ignore
@@ -129,8 +128,8 @@ fn parse_args() -> Result<Args, String> {
                 let secs = val("-t")?
                     .parse::<f64>()
                     .map_err(|_| "s80: -t wants a number of seconds")?;
-                if secs <= 0.0 || !secs.is_finite() {
-                    return Err("s80: -t wants a positive number of seconds".into());
+                if secs < 0.0 || !secs.is_finite() {
+                    return Err("s80: -t wants a non-negative number of seconds".into());
                 }
                 args.secs = Some(secs);
             }
@@ -258,7 +257,12 @@ fn run(args: &Args) -> std::io::Result<bool> {
     println!("s80 {} ({}){} — ^C for stats", args.target, dest.ip(), mode);
 
     let start = Instant::now();
-    let end = args.secs.map(|s| start + Duration::from_secs_f64(s));
+    // 0 for either bound means unlimited
+    let count = args.count.filter(|&c| c > 0);
+    let end = args
+        .secs
+        .filter(|&s| s > 0.0)
+        .map(|s| start + Duration::from_secs_f64(s));
     let mut seq: u16 = 0;
 
     // UDP auto-pacing state (see wait_gap / USAGE)
@@ -275,7 +279,7 @@ fn run(args: &Args) -> std::io::Result<bool> {
 
     'run: while !INTR.load(Ordering::SeqCst)
         && end.map_or(true, |e| Instant::now() < e)
-        && args.count.map_or(true, |c| stats.sent < c)
+        && count.map_or(true, |c| stats.sent < c)
     {
         prober.send(seq)?;
         let sent_at = Instant::now();
@@ -356,7 +360,7 @@ fn run(args: &Args) -> std::io::Result<bool> {
         let gap = args.delay.max(auto_delay);
         let more = !INTR.load(Ordering::SeqCst)
             && end.map_or(true, |e| Instant::now() < e)
-            && args.count.map_or(true, |c| stats.sent < c);
+            && count.map_or(true, |c| stats.sent < c);
         if !gap.is_zero() && more {
             wait_gap(prober.as_mut(), gap, &mut probes, &mut stats, &mut comb)?;
         }

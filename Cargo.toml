@@ -11,7 +11,7 @@ name = "s80"
 path = "src/main.rs"
 
 [dependencies]
-socket2 = { version = "0.5", features = ["all"] }
+socket2 = "0.5"
 libc = "0.2"
 
 [profile.release]

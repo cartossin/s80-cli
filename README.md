@@ -38,7 +38,7 @@ on a 5 ms path shouldn't blind the stream for a fixed 2 seconds.
 **It doesn't lie.** Monotonic clock only. If the OS stalls the process past a
 probe's deadline (scheduler, sleep), the sample is annotated and voided —
 never rendered as loss. Runs are bounded by default (1000 probes): it's a
-probe, not a daemon — going longer takes an explicit -c or -t.
+probe, not a daemon — going longer takes an explicit -c or -t (0 = unlimited).
 
 **It owns the socket.** ICMP echo via unprivileged datagram sockets — native
 on macOS, and on Linux this normally works out of the box too: systemd has
@@ -46,16 +46,16 @@ shipped `ping_group_range` wide-open by default since 2018 (Debian 13,
 Ubuntu, Fedora, Arch). Never shells out to `ping`.
 
 Where that default is absent (unprivileged containers silently drop it,
-hardened kernels), pick any one of:
+hardened kernels), either restore it or use UDP mode, which needs no
+privileges anywhere:
 
 ```
-sudo sysctl -w net.ipv4.ping_group_range='0 2147483647'   # the normal default
-sudo setcap cap_net_raw+ep $(which s80)   # per-binary; uses the raw fallback
-s80 -u <target>                           # UDP mode: no privileges, anywhere
+sudo sysctl -w net.ipv4.ping_group_range='0 2147483647'   # containers: '0 65535'
+s80 -u <target>
 ```
 
-(In containers the userns GID map caps the sysctl — use `0 65535`. And file
-capabilities are ignored on `nosuid` mounts like tmpfs `/tmp`.)
+No raw sockets, no setuid, no capability bits: if the kernel won't hand us
+an unprivileged socket, s80 says so and suggests `-u` — it never wants root.
 
 **UDP mode** (`-u`) probes like traceroute does: a datagram to a closed high
 port (default 33434) draws an ICMP port-unreachable from the target. On a
@@ -75,9 +75,9 @@ launder. `-d` sets the pace floor.
 ```
 s80 [options] <target>
 
-  -c, --count <n>     stop after n probes (default 1000)
-  -t, --secs <n>      stop after n seconds instead
-  -d, --delay <ms>    minimum gap between probes (fractional ok: 0.001 = 1 us)
+  -c, --count <n>     stop after n probes (default 1000; 0 = unlimited)
+  -t, --secs <n>      stop after n seconds instead (0 = unlimited)
+  -d, --delay <ms>    gap between probes, fractional down to 0.001 (1 us)
   -T, --timeout <ms>  fixed probe timeout (default: adaptive)
   -u, --udp           UDP probes (for hosts that ignore ICMP echo)
       --port <n>      UDP destination port (default 33434)
