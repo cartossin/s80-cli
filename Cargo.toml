@@ -1,6 +1,6 @@
 [package]
 name = "s80-cli"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Terminal-native latency/jitter visualizer — self-clocked ICMP ping-pong, colored !!! ticks"
 license = "MIT"

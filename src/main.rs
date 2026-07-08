@@ -470,7 +470,7 @@ fn wait_gap(
     Ok(())
 }
 
-/// Help gets the banner: ascii "s80" plus ticks swept 0 -> 500 ms through
+/// Help gets the banner: ascii "s80" plus ticks swept 0 -> 1500 ms through
 /// the actual colormap (log-spaced so the whole wheel shows). Colored only
 /// when stdout is a tty that can take it.
 fn print_help() {
@@ -493,14 +493,14 @@ fn print_help() {
         }
     };
     println!("{ART}");
-    const SWEEP: usize = 48;
+    const SWEEP: usize = 63;
     let mut strip = String::new();
     for i in 0..SWEEP {
-        // log-spaced from the 10 µs floor to 500 ms
-        let ms = 0.01 * (500.0_f64 / 0.01).powf(i as f64 / (SWEEP - 1) as f64);
+        // log-spaced from the 10 µs floor to 1500 ms
+        let ms = 0.01 * (1500.0_f64 / 0.01).powf(i as f64 / (SWEEP - 1) as f64);
         strip.push_str(&paint('!', color::rtt_rgb(ms)));
     }
-    println!("{strip}  0 -> 500 ms\n");
+    println!("{strip}  0 -> 1500 ms\n");
     println!("{USAGE}");
 }
 
