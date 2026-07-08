@@ -33,7 +33,10 @@ stutter your eye catches pre-attentively.
   serial probing makes the distinction unambiguous.
 
 **Adaptive timeout.** 4 × the recent p95 RTT, clamped to 250 ms – 2 s. A drop
-on a 5 ms path shouldn't blind the stream for a fixed 2 seconds.
+on a 5 ms path shouldn't blind the stream for a fixed 2 seconds. `-T` only
+sets the starting value: while probes time out the timeout grows, so a short
+`-T` can't turn the self-clock into a fixed-rate flood; once replies flow it
+re-anchors to the path. The footer reports where it settled.
 
 **It doesn't lie.** Monotonic clock only. If the OS stalls the process past a
 probe's deadline (scheduler, sleep), the sample is annotated and voided —
@@ -78,8 +81,8 @@ s80 [options] <target>
   -c, --count <n>     stop after n probes (default 1000; 0 = unlimited)
   -t, --secs <n>      stop after n seconds instead (0 = unlimited)
   -d, --delay <ms>    delay between probes in milliseconds
-  -T, --timeout <ms>  fixed probe timeout (default: adaptive)
-  -u, --udp           UDP probes (for hosts that ignore ICMP echo)
+  -T, --timeout <ms>  starting probe timeout (autotuned during the run)
+  -u, --udp           use UDP probes instead of ICMP
       --port <n>      UDP destination port (default 33434)
       --color <when>  auto | always | never
       --256           force 256-color palette

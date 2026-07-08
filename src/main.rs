@@ -21,6 +21,13 @@ use std::time::{Duration, Instant};
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_COUNT: u64 = 1000;
 const STALL_SLOP: Duration = Duration::from_millis(300);
+// timeout autotuner: start at -T (or 1 s), grow 1.5x on each timeout so a
+// short -T can never turn the probe into a fixed-rate blaster, re-anchor
+// to TIMEOUT_MULT x recent p95 whenever replies flow
+const TIMEOUT_INITIAL: Duration = Duration::from_millis(1000);
+const TIMEOUT_FLOOR: Duration = Duration::from_millis(250);
+const TIMEOUT_CEIL: Duration = Duration::from_millis(2000);
+const TIMEOUT_MULT: f64 = 4.0;
 const LATE_WINDOW: Duration = Duration::from_secs(10);
 // UDP auto-pacing: grow delay ~1.5x per drop, decay 10% per clean streak
 const PACE_STEP_MIN: Duration = Duration::from_millis(10);
@@ -62,12 +69,9 @@ usage: s80 [options] <target>
   -c, --count <n>     stop after n probes (default 1000; 0 = unlimited)
   -t, --secs <n>      stop after n seconds instead (0 = unlimited)
   -d, --delay <ms>    delay between probes in milliseconds
-  -T, --timeout <ms>  fixed probe timeout (default: adaptive, 4 x recent p95)
-  -u, --udp           UDP probes, traceroute-style: a closed high port draws
-                      an ICMP port-unreachable — works on hosts that ignore
-                      echo. Devices rate-limit unreachables, so drops
-                      auto-engage pacing: delay grows until replies hold,
-                      then decays to re-probe the limit (-d sets the floor)
+  -T, --timeout <ms>  starting probe timeout (autotuned from there: grows
+                      while probes time out, tracks the path once replies flow)
+  -u, --udp           use UDP probes instead of ICMP
       --port <n>      UDP destination port (default 33434)
       --color <when>  auto | always | never (default auto)
       --256           force 256-color palette (default: truecolor if COLORTERM)
@@ -275,6 +279,14 @@ fn run(args: &Args) -> std::io::Result<bool> {
         .map(|s| start + Duration::from_secs_f64(s));
     let mut seq: u16 = 0;
 
+    // timeout autotuner: -T is only the starting value. Growth on timeouts
+    // keeps a short -T from turning the self-clock into a fixed-rate
+    // blaster (can't-flood-by-construction survives any flag values).
+    let start_timeout = args.fixed_timeout.unwrap_or(TIMEOUT_INITIAL);
+    let tune_floor = TIMEOUT_FLOOR.min(start_timeout);
+    let tune_ceil = TIMEOUT_CEIL.max(start_timeout);
+    let mut cur_timeout = start_timeout;
+
     // UDP auto-pacing state (see wait_gap / USAGE)
     let mut auto_delay = Duration::ZERO;
     let mut pace_peak = Duration::ZERO;
@@ -305,8 +317,7 @@ fn run(args: &Args) -> std::io::Result<bool> {
                 pos: None,
             },
         );
-        let timeout = args.fixed_timeout.unwrap_or_else(|| stats.timeout());
-        let deadline = sent_at + timeout;
+        let deadline = sent_at + cur_timeout;
 
         let outcome = loop {
             match prober.recv(deadline)? {
@@ -346,6 +357,19 @@ fn run(args: &Args) -> std::io::Result<bool> {
                 }
             }
         };
+
+        // tune the timeout: replies re-anchor it to the path, timeouts grow
+        // it (a lost probe means we don't know the path — get more patient)
+        match outcome {
+            Outcome::Replied => {
+                if let Some(p95) = stats.recent_p95() {
+                    cur_timeout = Duration::from_secs_f64(p95 * TIMEOUT_MULT / 1000.0)
+                        .clamp(tune_floor, tune_ceil);
+                }
+            }
+            Outcome::Lost => cur_timeout = (cur_timeout * 3 / 2).min(tune_ceil),
+            Outcome::Voided => {}
+        }
 
         // UDP auto-pacing: devices rate-limit unreachables, so drops mean
         // "slower" more often than "lost". Grow the gap on each drop until
@@ -392,7 +416,7 @@ fn run(args: &Args) -> std::io::Result<bool> {
     } else {
         None
     };
-    print_footer(args, dest, &stats, elapsed, pace, color_mode);
+    print_footer(args, dest, &stats, elapsed, pace, color_mode, cur_timeout);
     Ok(stats.replies() > 0)
 }
 
@@ -492,6 +516,7 @@ fn print_footer(
     elapsed: f64,
     pace: Option<(Duration, Duration)>,
     mode: term::ColorMode,
+    timeout: Duration,
 ) {
     let completed = stats.replies() + stats.lost;
     let pct = |n: u64| {
@@ -524,14 +549,15 @@ fn print_footer(
         String::new()
     };
     println!(
-        "late {} ({:.2}%)  lost {} ({:.2}%){}  elapsed {:.3}s  rate {:.0}/s",
+        "late {} ({:.2}%)  lost {} ({:.2}%){}  elapsed {:.3}s  rate {:.0}/s  timeout {}ms (autotuned)",
         stats.late,
         pct(stats.late),
         stats.lost,
         pct(stats.lost),
         voided,
         elapsed,
-        stats.sent as f64 / elapsed.max(0.001)
+        stats.sent as f64 / elapsed.max(0.001),
+        fmt_ms(timeout.as_secs_f64() * 1000.0)
     );
     if let Some((current, peak)) = pace {
         println!(

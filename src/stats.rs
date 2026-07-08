@@ -1,13 +1,8 @@
 //! Run statistics and the recent-window p95 that drives the adaptive timeout.
 
 use std::collections::VecDeque;
-use std::time::Duration;
 
 const RECENT_WINDOW: usize = 64;
-const TIMEOUT_MULT: f64 = 4.0;
-const TIMEOUT_FLOOR: Duration = Duration::from_millis(250);
-const TIMEOUT_CEIL: Duration = Duration::from_millis(2000);
-const TIMEOUT_INITIAL: Duration = Duration::from_millis(1000);
 
 pub struct Stats {
     rtts: Vec<f64>, // all reply RTTs in ms, including late ones
@@ -45,14 +40,15 @@ impl Stats {
         self.record_rtt(rtt_ms);
     }
 
-    /// Adaptive timeout: TIMEOUT_MULT × p95 of the recent window, clamped.
-    /// A drop on a 5 ms path shouldn't blind the stream for a fixed 2 s.
-    pub fn timeout(&self) -> Duration {
+    /// p95 of the recent reply window, in ms — feeds the timeout autotuner.
+    pub fn recent_p95(&self) -> Option<f64> {
         if self.recent.is_empty() {
-            return TIMEOUT_INITIAL;
+            return None;
         }
-        let p95 = percentile(&mut self.recent.iter().copied().collect::<Vec<_>>(), 95.0);
-        Duration::from_secs_f64(p95 * TIMEOUT_MULT / 1000.0).clamp(TIMEOUT_FLOOR, TIMEOUT_CEIL)
+        Some(percentile(
+            &mut self.recent.iter().copied().collect::<Vec<_>>(),
+            95.0,
+        ))
     }
 
     pub fn replies(&self) -> u64 {
@@ -85,21 +81,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn timeout_floor_on_fast_path() {
+    fn recent_p95_tracks_window() {
         let mut s = Stats::new();
-        for _ in 0..64 {
-            s.record_rtt(0.5);
-        }
-        assert_eq!(s.timeout(), TIMEOUT_FLOOR);
-    }
-
-    #[test]
-    fn timeout_tracks_slow_path() {
-        let mut s = Stats::new();
+        assert_eq!(s.recent_p95(), None);
         for _ in 0..64 {
             s.record_rtt(200.0);
         }
-        assert_eq!(s.timeout(), Duration::from_millis(800));
+        assert_eq!(s.recent_p95(), Some(200.0));
     }
 
     #[test]
