@@ -60,6 +60,17 @@ ICMP is ignored/blocked.
 
 
 
+## Install
+
+macOS (Apple Silicon) or Linux (any x86_64 distro, WSL included):
+
+```
+curl -L https://github.com/cartossin/s80-cli/releases/latest/download/s80-$(uname -s)-$(uname -m).tar.gz | tar xz
+sudo mv s80 /usr/local/bin/
+```
+
+Or build from source: `cargo build --release` (Rust 1.82+).
+
 ## Usage
 
 ```
