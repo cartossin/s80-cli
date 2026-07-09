@@ -62,14 +62,29 @@ ICMP is ignored/blocked.
 
 ## Install
 
-macOS (Apple Silicon) or Linux (any x86_64 distro, WSL included):
+### Linux
+
+Any x86_64 distro — the binary is fully static. Works in WSL too.
 
 ```
-curl -L https://github.com/cartossin/s80-cli/releases/latest/download/s80-$(uname -s)-$(uname -m).tar.gz | tar xz
+curl -L https://github.com/cartossin/s80-cli/releases/latest/download/s80-Linux-x86_64.tar.gz | tar xz
 sudo mv s80 /usr/local/bin/
 ```
 
-Or build from source: `cargo build --release` (Rust 1.82+).
+### macOS
+
+Apple Silicon:
+
+```
+curl -L https://github.com/cartossin/s80-cli/releases/latest/download/s80-Darwin-arm64.tar.gz | tar xz
+sudo mv s80 /usr/local/bin/
+```
+
+### From source
+
+```
+cargo build --release   # Rust 1.82+
+```
 
 ## Usage
 
