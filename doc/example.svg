@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 706 203" width="706" height="203" role="img" aria-label="s80 terminal output">
-<rect width="706" height="203" rx="8" fill="#0d1117"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 774 203" width="774" height="203" role="img" aria-label="s80 terminal output">
+<rect width="774" height="203" rx="8" fill="#0d1117"/>
 <g font-family="SF Mono, Menlo, DejaVu Sans Mono, Consolas, monospace" font-size="14" xml:space="preserve">
 <text y="30"><tspan x="16.0" textLength="16.9" lengthAdjust="spacingAndGlyphs" fill="#7ee787">$ </tspan><tspan x="32.9" textLength="92.7" lengthAdjust="spacingAndGlyphs" fill="#c9d1d9">s80 1.1.1.1</tspan></text>
 <text y="49"><tspan x="16.0" textLength="303.5" lengthAdjust="spacingAndGlyphs" fill="#c9d1d9">s80 1.1.1.1 (1.1.1.1) — ^C for stats</tspan></text>

@@ -105,7 +105,11 @@ def main():
         # drop pure-space runs: explicit x positioning makes them dead weight
         lines.append([(st, t, colr) for st, t, colr in runs if t.strip()])
 
-    width = round(80 * CH + 2 * PAD)
+    maxcols = max(
+        (st + len(t) for runs in lines for st, t, _ in runs),
+        default=80,
+    )
+    width = round(maxcols * CH + 2 * PAD)
     height = len(lines) * LH + 2 * PAD
     out = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" '
