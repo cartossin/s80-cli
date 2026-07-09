@@ -11,8 +11,8 @@ I fell in love with the fast pinger on Cisco gear ~2004 when I worked at a cable
 
 ## How it works
 
-**Native ICMP/udp ping tool** It does not call the system ping tool but directly 
-generatesand times packets. It only sends a second packet when the first one
+**Native ICMP/udp ping tool** It does not call the system ping tool but directly
+generates and times packets. It only sends a second packet when the first one
 comes back or times out, so it will not DOS or flood networks. The packet rate
 scales with the speed of the network. If you ping localhost, you might see 100k
 packets per second, or only 1-2 pps over satellite. Second, even if you set a 
@@ -51,7 +51,7 @@ sudo sysctl -w net.ipv4.ping_group_range='0 2147483647'   # containers: '0 65535
 s80 -u <target>
 ```
 
-No raw sockets, no setuid, no capability bits: This was a design requirement
+No raw sockets, no setuid, no capability bits: This was a design requirement.
 It isn't reasonable for a ping tool to ask for root.
 
 **UDP mode** (`-u`) probes like traceroute does: a datagram to a closed high
