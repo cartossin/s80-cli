@@ -82,27 +82,28 @@ def main():
     grid = replay(data)
     rows = max(r for r, _ in grid) + 1 if grid else 0
 
-    lines = []  # list of list[(text, color)]
+    lines = []  # list of list[(start_col, text, color)]
     if cmd:
-        lines.append([("$ ", PROMPT), (cmd, FG_DEFAULT)])
+        lines.append([(0, "$ ", PROMPT), (2, cmd, FG_DEFAULT)])
     for r in range(rows):
         cols = [c for (rr, c) in grid if rr == r]
         if not cols:
             lines.append([])
             continue
-        runs, cur, curcol = [], "", "start"
+        runs, cur, curcol, start = [], "", "start", 0
         for c in range(max(cols) + 1):
             ch, colr = grid.get((r, c), (" ", None))
             hexc = "#{:02x}{:02x}{:02x}".format(*colr) if colr else FG_DEFAULT
             if hexc != curcol:
                 if cur:
-                    runs.append((cur, curcol))
-                cur, curcol = ch, hexc
+                    runs.append((start, cur, curcol))
+                cur, curcol, start = ch, hexc, c
             else:
                 cur += ch
         if cur:
-            runs.append((cur, curcol))
-        lines.append(runs)
+            runs.append((start, cur, curcol))
+        # drop pure-space runs: explicit x positioning makes them dead weight
+        lines.append([(st, t, colr) for st, t, colr in runs if t.strip()])
 
     width = round(80 * CH + 2 * PAD)
     height = len(lines) * LH + 2 * PAD
@@ -116,10 +117,15 @@ def main():
         y = PAD + (n + 1) * LH - 5
         if not runs:
             continue
+        # x pins each run to its column; textLength forces the run to
+        # occupy exactly its cells no matter which monospace font the
+        # viewer has — without it, wide fonts overflow the card
         spans = "".join(
-            f'<tspan fill="{colr}">{esc(text)}</tspan>' for text, colr in runs
+            f'<tspan x="{PAD + st * CH:.1f}" textLength="{len(text) * CH:.1f}" '
+            f'lengthAdjust="spacingAndGlyphs" fill="{colr}">{esc(text)}</tspan>'
+            for st, text, colr in runs
         )
-        out.append(f'<text x="{PAD}" y="{y}">{spans}</text>')
+        out.append(f'<text y="{y}">{spans}</text>')
     out.append("</g></svg>")
     print("\n".join(out))
 
