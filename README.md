@@ -6,8 +6,6 @@ I fell in love with the fast pinger on Cisco gear ~2004 when I worked at a cable
 
 ![s80 pinging 1.1.1.1 — real captured output](doc/example.svg)
 
-<sub>Real run, real colors — the image is generated from a pty capture
-(`doc/ansi2svg.py`), not mocked up.</sub>
 
 ## How it works
 
@@ -15,7 +13,7 @@ I fell in love with the fast pinger on Cisco gear ~2004 when I worked at a cable
 generates and times packets. It only sends a second packet when the first one
 comes back or times out, so it will not DOS or flood networks. The packet rate
 scales with the speed of the network. If you ping localhost, you might see 100k
-packets per second, or only 1-2 pps over satellite. Second, even if you set a 
+packets per second, or only 1-2 pps over satellite. Also, even if you set a 
 very low timeout, it automatically scales the timeout if everything is timing
 out to avoid a flood. Sending a lot of pings is fine as long as you are responsible
 about it.
