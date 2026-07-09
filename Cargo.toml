@@ -1,7 +1,8 @@
 [package]
 name = "s80-cli"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
+rust-version = "1.82"
 description = "Terminal-native latency/jitter visualizer — self-clocked ICMP ping-pong, colored !!! ticks"
 license = "MIT"
 repository = "https://forgejo.0n0.org/cory/s80-cli"

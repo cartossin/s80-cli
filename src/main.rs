@@ -45,6 +45,10 @@ extern "C" fn on_sigint(_: libc::c_int) {
     }
 }
 
+extern "C" fn on_sigwinch(_: libc::c_int) {
+    term::WINCH.store(true, Ordering::Relaxed);
+}
+
 struct Args {
     target: String,
     secs: Option<f64>,
@@ -169,7 +173,10 @@ fn parse_args() -> Result<Args, String> {
                 let ms: u64 = val("-T")?
                     .parse()
                     .map_err(|_| "s80: -T wants milliseconds")?;
-                args.fixed_timeout = Some(Duration::from_millis(ms.clamp(10, 10_000)));
+                if !(10..=10_000).contains(&ms) {
+                    return Err("s80: -T must be 10..10000 ms".into());
+                }
+                args.fixed_timeout = Some(Duration::from_millis(ms));
             }
             "--color" => {
                 args.color = match val("--color")?.as_str() {
@@ -228,6 +235,9 @@ fn run(args: &Args) -> std::io::Result<bool> {
         // sa_flags deliberately 0: no SA_RESTART, so a blocking recv
         // returns EINTR and the footer prints immediately on ^C
         libc::sigaction(libc::SIGINT, &sa, std::ptr::null_mut());
+        let mut sw: libc::sigaction = std::mem::zeroed();
+        sw.sa_sigaction = on_sigwinch as usize;
+        libc::sigaction(libc::SIGWINCH, &sw, std::ptr::null_mut());
     }
 
     let dest = resolve(&args.target)?;
@@ -256,7 +266,7 @@ fn run(args: &Args) -> std::io::Result<bool> {
     let mut strip = term::Strip::new(ansi, mode);
     let color_mode = mode;
     let mut stats = stats::Stats::new();
-    let mut probes: HashMap<u16, Probe> = HashMap::new();
+    let mut probes: HashMap<u32, Probe> = HashMap::new();
 
     let banner_mode = if args.udp {
         format!(" [udp:{}]", args.port)
@@ -277,7 +287,7 @@ fn run(args: &Args) -> std::io::Result<bool> {
         .secs
         .filter(|&s| s > 0.0)
         .map(|s| start + Duration::from_secs_f64(s));
-    let mut seq: u16 = 0;
+    let mut seq: u32 = 0;
 
     // timeout autotuner: -T is only the starting value. Growth on timeouts
     // keeps a short -T from turning the self-clock into a fixed-rate
@@ -292,6 +302,7 @@ fn run(args: &Args) -> std::io::Result<bool> {
     let mut pace_peak = Duration::ZERO;
     let mut clean_streak: u32 = 0;
     let mut pace_noted = false;
+    let mut send_err_noted = false;
 
     enum Outcome {
         Replied,
@@ -308,7 +319,25 @@ fn run(args: &Args) -> std::io::Result<bool> {
         // send syscall — stamping after would hide real transit and report
         // impossibly small RTTs. Never understate.
         let sent_at = Instant::now();
-        prober.send(seq)?;
+        if let Err(e) = prober.send(seq) {
+            if !probe::is_transient(&e) {
+                return Err(e);
+            }
+            // the local stack can't send (route flap, interface down,
+            // rate-limit): that says nothing about the path. Void it,
+            // note once per outage, and wait before retrying — the run
+            // must survive the incident it exists to document.
+            stats.sent += 1;
+            stats.voided += 1;
+            if !send_err_noted {
+                strip.note(&format!("[send error: {e} — pausing]"));
+                send_err_noted = true;
+            }
+            wait_gap(prober.as_mut(), cur_timeout, &mut probes, &mut stats, &mut strip)?;
+            seq = seq.wrapping_add(1);
+            continue;
+        }
+        send_err_noted = false;
         stats.sent += 1;
         probes.insert(
             seq,
@@ -422,9 +451,9 @@ fn run(args: &Args) -> std::io::Result<bool> {
 
 /// A reply to an older, timed-out probe: late, not lost.
 fn handle_late(
-    rseq: u16,
+    rseq: u32,
     at: Instant,
-    probes: &mut HashMap<u16, Probe>,
+    probes: &mut HashMap<u32, Probe>,
     stats: &mut stats::Stats,
     strip: &mut term::Strip,
 ) {
@@ -444,7 +473,7 @@ fn handle_late(
 fn wait_gap(
     prober: &mut dyn probe::Prober,
     gap: Duration,
-    probes: &mut HashMap<u16, Probe>,
+    probes: &mut HashMap<u32, Probe>,
     stats: &mut stats::Stats,
     strip: &mut term::Strip,
 ) -> std::io::Result<()> {
@@ -561,8 +590,8 @@ fn print_footer(
     );
     if let Some((current, peak)) = pace {
         println!(
-            "auto-pace settled at {}ms (peak {}ms) — the target rate-limits; \
-             pace-masked drops still count as lost above",
+            "auto-pace settled at {}ms (peak {}ms) — drops triggered pacing; \
+             they still count as lost above",
             fmt_ms(current.as_secs_f64() * 1000.0),
             fmt_ms(peak.as_secs_f64() * 1000.0)
         );

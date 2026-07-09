@@ -9,7 +9,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
-const PAYLOAD: &[u8] = b"s80!s80!s80!s80!s80!s80!"; // 24 bytes
+const FILL: &[u8] = b"s80!s80!s80!s80!s80!"; // pad after the 2 epoch bytes
 
 pub struct Pinger {
     sock: Socket,
@@ -42,12 +42,17 @@ impl Pinger {
 }
 
 impl Prober for Pinger {
-    fn send(&mut self, seq: u16) -> io::Result<()> {
-        let mut pkt = [0u8; 8 + PAYLOAD.len()];
+    fn send(&mut self, seq: u32) -> io::Result<()> {
+        // the header seq field is 16-bit; the upper half of our virtual
+        // sequence rides in the payload (echoed back verbatim), so replies
+        // reconstruct a u32 — no ambiguity when the wire seq wraps at
+        // high probe rates within the late window
+        let mut pkt = [0u8; 10 + FILL.len()];
         pkt[0] = 8; // echo request
         pkt[4..6].copy_from_slice(&self.ident.to_be_bytes());
-        pkt[6..8].copy_from_slice(&seq.to_be_bytes());
-        pkt[8..].copy_from_slice(PAYLOAD);
+        pkt[6..8].copy_from_slice(&((seq & 0xffff) as u16).to_be_bytes());
+        pkt[8..10].copy_from_slice(&((seq >> 16) as u16).to_be_bytes());
+        pkt[10..].copy_from_slice(FILL);
         let ck = checksum(&pkt);
         pkt[2..4].copy_from_slice(&ck.to_be_bytes());
         self.sock.send(&pkt)?;
@@ -85,6 +90,8 @@ impl Prober for Pinger {
                         io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
                     ) => {}
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => return Ok(Recv::Interrupted),
+                // transient local outage: wait it out until the deadline
+                Err(e) if crate::probe::is_transient(&e) => {}
                 Err(e) => return Err(e),
             }
         }
@@ -101,15 +108,17 @@ impl Prober for Pinger {
 /// We match on sequence number, not identifier: Linux dgram sockets rewrite
 /// the id (and demux replies to us by it), and the socket is connect()ed,
 /// so what arrives here is already ours.
-fn parse_echo_reply(raw: &[u8]) -> Option<u16> {
+fn parse_echo_reply(raw: &[u8]) -> Option<u32> {
     let icmp = if raw.first()? >> 4 == 4 {
         let ihl = ((raw[0] & 0xf) as usize) * 4;
         raw.get(ihl..)?
     } else {
         raw
     };
-    if icmp.len() >= 8 && icmp[0] == 0 && icmp[1] == 0 {
-        Some(u16::from_be_bytes([icmp[6], icmp[7]]))
+    if icmp.len() >= 10 && icmp[0] == 0 && icmp[1] == 0 {
+        let low = u16::from_be_bytes([icmp[6], icmp[7]]) as u32;
+        let high = u16::from_be_bytes([icmp[8], icmp[9]]) as u32;
+        Some((high << 16) | low)
     } else {
         None
     }
@@ -152,12 +161,20 @@ mod tests {
         let mut icmp = [0u8; 32];
         icmp[6] = 0xab;
         icmp[7] = 0xcd;
-        assert_eq!(parse_echo_reply(&icmp), Some(0xabcd));
+        icmp[8] = 0x01;
+        icmp[9] = 0x02;
+        assert_eq!(parse_echo_reply(&icmp), Some(0x0102_abcd));
 
         let mut wrapped = vec![0u8; 20 + 32];
         wrapped[0] = 0x45;
         wrapped[20..].copy_from_slice(&icmp);
-        assert_eq!(parse_echo_reply(&wrapped), Some(0xabcd));
+        assert_eq!(parse_echo_reply(&wrapped), Some(0x0102_abcd));
+    }
+
+    #[test]
+    fn rejects_replies_too_short_for_the_epoch() {
+        let icmp = [0u8; 9]; // valid echo reply header but no epoch bytes
+        assert_eq!(parse_echo_reply(&icmp), None);
     }
 
     #[test]

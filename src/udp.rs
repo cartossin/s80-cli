@@ -21,7 +21,7 @@ pub const DEFAULT_PORT: u16 = 33434; // traceroute's classic base port
 
 pub struct UdpProber {
     sock: Socket,
-    last_seq: u16,
+    last_seq: u32,
     buf: [std::mem::MaybeUninit<u8>; 2048],
 }
 
@@ -40,11 +40,11 @@ impl UdpProber {
 }
 
 impl Prober for UdpProber {
-    fn send(&mut self, seq: u16) -> io::Result<()> {
+    fn send(&mut self, seq: u32) -> io::Result<()> {
         self.last_seq = seq;
-        let mut pkt = [0u8; 26];
-        pkt[..2].copy_from_slice(&seq.to_be_bytes());
-        pkt[2..].copy_from_slice(b"s80!s80!s80!s80!s80!s80!");
+        let mut pkt = [0u8; 28];
+        pkt[..4].copy_from_slice(&seq.to_be_bytes());
+        pkt[4..].copy_from_slice(b"s80!s80!s80!s80!s80!s80!");
         match self.sock.send(&pkt) {
             Ok(_) => Ok(()),
             // a stale unreachable (from an earlier probe) can surface as a
@@ -90,10 +90,9 @@ impl Prober for UdpProber {
                         io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
                     ) => {}
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => return Ok(Recv::Interrupted),
-                // other async errors (host/net unreachable from a mid-path
-                // router) aren't a round trip to the target; keep waiting
-                Err(e) if e.raw_os_error() == Some(libc::EHOSTUNREACH) => {}
-                Err(e) if e.raw_os_error() == Some(libc::ENETUNREACH) => {}
+                // transient/mid-path errors aren't a round trip to the
+                // target; keep waiting until the deadline
+                Err(e) if crate::probe::is_transient(&e) => {}
                 Err(e) => return Err(e),
             }
         }

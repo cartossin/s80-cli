@@ -10,7 +10,7 @@ pub struct Stats {
     pub sent: u64,
     pub late: u64,
     pub lost: u64,
-    pub voided: u64, // probes discarded due to detected scheduler stalls
+    pub voided: u64, // discarded: scheduler stalls or local send failures
 }
 
 impl Stats {

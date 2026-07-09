@@ -2,6 +2,10 @@
 //! retroactively repaint its `.` into a `,` via cursor escapes.
 
 use std::io::{self, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Set by the SIGWINCH handler in main; consumed on the next glyph.
+pub static WINCH: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum ColorMode {
@@ -14,6 +18,7 @@ pub enum ColorMode {
 pub struct GlyphPos {
     row: u64,
     col: u16,
+    gen: u32, // resize generation: repaints don't cross a resize
 }
 
 /// Wrap `text` in the foreground escape for `rgb` under `mode`
@@ -40,6 +45,7 @@ pub struct Strip {
     height: u16,
     col: u16,
     row: u64, // absolute row index of the line the cursor is on
+    generation: u32,
 }
 
 impl Strip {
@@ -53,15 +59,37 @@ impl Strip {
             height: height.max(2),
             col: 0,
             row: 0,
+            generation: 0,
+        }
+    }
+
+    /// A resize rewraps scrollback under us, so old glyph positions are no
+    /// longer trustworthy: adopt the new size, start a fresh line, and
+    /// bump the generation so stale repaints are skipped (still tallied).
+    fn maybe_resize(&mut self) {
+        if !WINCH.swap(false, Ordering::Relaxed) {
+            return;
+        }
+        if let Some((w, h)) = winsize() {
+            self.width = w.max(10);
+            self.height = h.max(2);
+        }
+        self.generation += 1;
+        if self.col > 0 {
+            let _ = self.out.write_all(b"\n");
+            self.row += 1;
+            self.col = 0;
         }
     }
 
     /// Print one glyph at the cursor, advancing (and wrapping) the strip.
     /// Returns where it landed so it can be repainted later.
     pub fn put(&mut self, glyph: char, rgb: Option<(u8, u8, u8)>) -> GlyphPos {
+        self.maybe_resize();
         let pos = GlyphPos {
             row: self.row,
             col: self.col,
+            gen: self.generation,
         };
         let mut buf = String::with_capacity(24);
         self.push_colored(&mut buf, glyph, rgb);
@@ -80,7 +108,7 @@ impl Strip {
     /// Silently skips if the position has scrolled off the visible screen
     /// or we're not talking to a terminal — the tally still counts it.
     pub fn repaint(&mut self, pos: GlyphPos, glyph: char, rgb: Option<(u8, u8, u8)>) {
-        if !self.ansi {
+        if !self.ansi || pos.gen != self.generation {
             return;
         }
         let dy = self.row - pos.row;
@@ -101,6 +129,7 @@ impl Strip {
 
     /// Out-of-band annotation (e.g. a detected stall). Breaks the strip.
     pub fn note(&mut self, text: &str) {
+        self.maybe_resize();
         let mut buf = String::new();
         if self.col > 0 {
             buf.push('\n');
