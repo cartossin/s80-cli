@@ -5,7 +5,7 @@ edition = "2021"
 rust-version = "1.82"
 description = "Terminal-native latency/jitter visualizer — self-clocked ICMP ping-pong, colored !!! ticks"
 license = "MIT"
-repository = "https://forgejo.0n0.org/cory/s80-cli"
+repository = "https://github.com/cartossin/s80-cli"
 
 [[bin]]
 name = "s80"
