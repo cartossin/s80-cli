@@ -45,7 +45,7 @@ hardened kernels), either restore it or use UDP mode, which needs no
 privileges anywhere:
 
 ```
-sudo sysctl -w net.ipv4.ping_group_range='0 2147483647'   # containers: '0 65535'
+sudo sysctl -w net.ipv4.ping_group_range='0 65535'
 s80 -u <target>
 ```
 
@@ -54,9 +54,6 @@ To make it persistent across reboots:
 ```
 echo 'net.ipv4.ping_group_range = 0 65535' | sudo tee /etc/sysctl.d/99-unprivileged-ping.conf
 ```
-
-(`0 65535` works everywhere, containers included — the wider value fails
-silently inside user namespaces.)
 
 No raw sockets, no setuid, no capability bits: This was a design requirement.
 It isn't reasonable for a ping tool to ask for root.

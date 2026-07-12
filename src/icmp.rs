@@ -26,8 +26,7 @@ impl Pinger {
                     "cannot create unprivileged ICMP socket: {e}\n\
                      on Linux this is gated by a sysctl (open by default on \
                      modern distros, often closed in containers):\n  \
-                     sudo sysctl -w net.ipv4.ping_group_range='0 2147483647'  \
-                     (containers: '0 65535')\n\
+                     sudo sysctl -w net.ipv4.ping_group_range='0 65535'\n\
                      UDP probes need no privileges at all: s80 -u <target>"
                 ),
             )
