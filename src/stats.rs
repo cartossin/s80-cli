@@ -148,6 +148,31 @@ mod tests {
     }
 
     #[test]
+    fn p95_matches_exact_sort_within_one_bucket() {
+        // deterministic LCG noise shaped like real RTTs: a fast cluster
+        // with occasional 10-40x spikes (wi-fi wake, queueing)
+        let mut s = Stats::new();
+        let mut exact = Vec::new();
+        let mut x: u64 = 0x2545F4914F6CDD1D;
+        for _ in 0..100_000 {
+            x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let u = (x >> 11) as f64 / (1u64 << 53) as f64; // [0,1)
+            let rtt = if u > 0.97 {
+                10.0 + u * 30.0 // spike tail
+            } else {
+                0.8 + u * 0.4 // fast cluster around 1 ms
+            };
+            s.record_rtt(rtt);
+            exact.push(rtt);
+        }
+        exact.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let true_p95 = exact[(0.95_f64 * exact.len() as f64).ceil() as usize - 1];
+        let (_, _, hist_p95, _) = s.summary().unwrap();
+        let rel = (hist_p95 - true_p95).abs() / true_p95;
+        assert!(rel < 0.001, "hist {hist_p95} vs exact {true_p95} ({rel:.5} rel)");
+    }
+
+    #[test]
     fn bucket_edges_are_sane() {
         assert_eq!(bucket(0.0), 0);
         assert_eq!(bucket(-1.0), 0);
