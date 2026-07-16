@@ -10,6 +10,10 @@ I fell in love with the fast pinger on Cisco gear ~2004 when I worked at a cable
 
 <sub>This shows periodic latency spike present on a wifi network</sub>
 
+[![S80 visualizing buffer bloat while running speedtest](doc/bufferbloat-video.jpg)](https://peertube.lagbag.com/w/8YaaS1HzhvJ1YzwVyBHLTZ)
+
+<sub>▶ Video (32s): S80 visualizing buffer bloat while running a speedtest</sub>
+
 
 ## How it works
 
