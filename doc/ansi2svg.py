@@ -121,15 +121,22 @@ def main():
         y = PAD + (n + 1) * LH - 5
         if not runs:
             continue
-        # x pins each run to its column; textLength forces the run to
-        # occupy exactly its cells no matter which monospace font the
-        # viewer has — without it, wide fonts overflow the card
-        spans = "".join(
-            f'<tspan x="{PAD + st * CH:.1f}" textLength="{len(text) * CH:.1f}" '
-            f'lengthAdjust="spacingAndGlyphs" fill="{colr}">{esc(text)}</tspan>'
-            for st, text, colr in runs
-        )
-        out.append(f'<text y="{y}">{spans}</text>')
+        # emit one tspan per WORD, each pinned to its absolute column with
+        # x + textLength: <img> renderers collapse whitespace regardless of
+        # xml:space, so spaces are never emitted — position does the work
+        spans = []
+        for st, text, colr in runs:
+            col = st
+            for chunk in text.split(" "):
+                if chunk:
+                    spans.append(
+                        f'<tspan x="{PAD + col * CH:.1f}" '
+                        f'textLength="{len(chunk) * CH:.1f}" '
+                        f'lengthAdjust="spacingAndGlyphs" '
+                        f'fill="{colr}">{esc(chunk)}</tspan>'
+                    )
+                col += len(chunk) + 1
+        out.append(f'<text y="{y}">{"".join(spans)}</text>')
     out.append("</g></svg>")
     print("\n".join(out))
 
