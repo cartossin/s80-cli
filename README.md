@@ -4,7 +4,11 @@ Terminal-native ping tool. Sibling of [s80](https://s80.me)
 
 I fell in love with the fast pinger on Cisco gear ~2004 when I worked at a cable ISP. Being able to send potentially hundreds of icmp packets per second made stuttery latency really obvious. This led me to create the web-based tool [s80](https://s80.me). But I've worked on this thing for so long, I've added a lot of cool stuff that was never present in the original cisco ping tool (namely color). The stream of !!!!!! coming out of the cisco pinger let you see the latency as it happens, but once it outputs them the information is lost. The color lets you see the whole picture at once.
 
+![s80 --help](doc/help.svg)
+
 ![s80 pinging 1.1.1.1 — real captured output](doc/example.svg)
+
+<sub>This shows periodic latency spike present on a wifi network</sub>
 
 
 ## How it works
