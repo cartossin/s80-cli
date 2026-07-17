@@ -94,6 +94,12 @@ curl -L https://github.com/cartossin/s80-cli/releases/latest/download/s80-Darwin
 sudo mv s80 /usr/local/bin/
 ```
 
+### Anywhere with Rust
+
+```
+cargo install s80
+```
+
 ### From source
 
 ```
